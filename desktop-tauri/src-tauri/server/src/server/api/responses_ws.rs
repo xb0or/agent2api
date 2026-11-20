@@ -15,8 +15,23 @@
 //! 状态），`core::protocol::responses` 对这类字段直接报 400。WS 的核心用法
 //! 恰恰是「增量 input + 上一轮 id」，所以这里按 `stream_id` 记一份累积的
 //! input/output 项与最近一次 response id：命中就把历史拼到本轮 `input` 前面，
-//! 再交给无状态的 POST 链路；未命中回一条 error 事件（WS 上没有 HTTP 状态码
-//! 可用），不断连。
+//! 再交给无状态的 POST 链路；未命中回 `previous_response_not_found` error
+//! 事件（Codex 把它当可重试错误，随后改发完整上下文），不断连。
+//!
+//! ── `generate: false` 预热 ──────────────────────────────────
+//! Codex 打开 WS 后会先发一轮预热：带齐 instructions 与 tools、不要求生成，
+//! 拿回一个 response id，下一轮再用它当 `previous_response_id` 只发增量。
+//! 上游都是 Chat 接口，没有「只准备不生成」的能力，转发出去会真的生成一段
+//! 回复（白花额度，还会把一条凭空的 assistant 消息塞进历史）。所以预热在
+//! 本模块就地应答：不碰上游，网关自己发 `resp_` 号，回 `response.created`
+//! 与空 output 的 `response.completed`，本轮 input 记进历史。Codex 之后的
+//! 每一轮都会重发 tools / instructions（只有 input 走增量），历史里只存
+//! 对话项就够。
+//!
+//! ── 错误事件的形状 ──────────────────────────────────────────
+//! 与官方 WS 一致：`{"type":"error","status":<HTTP 码>,"error":{type,code,
+//! message,param}}`。Codex 只认带 `status` 的包装错误，扁平的
+//! `{"type":"error","message":..}` 会被它忽略，一直等到空闲超时。
 //!
 //! ── P1 的并发模型 ──────────────────────────────────────────
 //! 同一连接上的 `response.create` 串行处理：一条流收完才读下一条消息。
@@ -34,7 +49,8 @@ use futures::StreamExt;
 use serde_json::{json, Value};
 
 use crate::server::core::key_scope::KeyScope;
-use crate::server::core::protocol::SseLineBuffer;
+use crate::server::core::protocol::responses::{response_envelope, response_event, usage_to_responses};
+use crate::server::core::protocol::{random_id, SseLineBuffer};
 use crate::server::logging;
 use crate::server::request_stats::ApiKeyIdentity;
 use crate::server::ServerState;
@@ -46,6 +62,9 @@ const DEFAULT_STREAM_ID: &str = "default";
 
 /// 错误响应体的读取上限：网关的错误体只有一行 JSON，64KB 足够。
 const MAX_ERROR_BODY: usize = 64 * 1024;
+
+/// 续轮引用的 response id 不在本连接时的错误码（与官方一致，Codex 据此重发完整上下文）。
+const PREVIOUS_RESPONSE_NOT_FOUND: &str = "previous_response_not_found";
 
 /// 一条连接内某个 `stream_id` 的会话状态。
 #[derive(Default)]
@@ -125,15 +144,16 @@ async fn handle_message(
     text: &str,
 ) -> bool {
     let Ok(mut payload) = serde_json::from_str::<Value>(text) else {
-        return send_error(socket, DEFAULT_STREAM_ID, "消息不是 JSON 对象").await;
+        return send_error(socket, DEFAULT_STREAM_ID, 400, "invalid_request_error", None, "消息不是 JSON 对象", None).await;
     };
     if !payload.is_object() {
-        return send_error(socket, DEFAULT_STREAM_ID, "消息不是 JSON 对象").await;
+        return send_error(socket, DEFAULT_STREAM_ID, 400, "invalid_request_error", None, "消息不是 JSON 对象", None).await;
     }
     let kind = payload.get("type").and_then(Value::as_str).unwrap_or_default().to_string();
     if kind != "response.create" {
         let stream_id = stream_id_of(&payload).to_string();
-        return send_error(socket, &stream_id, &format!("不支持的消息类型: {kind}")).await;
+        let message = format!("不支持的消息类型: {kind}");
+        return send_error(socket, &stream_id, 400, "invalid_request_error", None, &message, Some("type")).await;
     }
     let stream_id = stream_id_of(&payload).to_string();
     let previous = payload
@@ -149,10 +169,15 @@ async fn handle_message(
             .and_then(|entry| entry.last_response_id.as_deref())
             == Some(previous);
         if !matched {
+            let message = format!("previous_response_id 不在本连接的历史中: {previous}");
             return send_error(
                 socket,
                 &stream_id,
-                &format!("previous_response_id 不在本连接的历史中: {previous}"),
+                400,
+                "invalid_request_error",
+                Some(PREVIOUS_RESPONSE_NOT_FOUND),
+                &message,
+                Some("previous_response_id"),
             )
             .await;
         }
@@ -166,14 +191,34 @@ async fn handle_message(
     };
     let mut input_items: Vec<Value> = Vec::new();
     append_input(&mut input_items, payload.get("input"));
+
+    // 预热：就地应答，不转发上游（理由见模块头）。
+    if is_warmup(&payload) {
+        let response_id = random_id("resp");
+        let keep = send_warmup(socket, &stream_id, &response_id, &payload).await;
+        let entry = streams.entry(stream_id.clone()).or_default();
+        if previous.is_none() {
+            entry.history.clear();
+        }
+        entry.history.extend(input_items);
+        entry.last_response_id = Some(response_id);
+        logging::verbose(
+            "[ResponsesWS]",
+            &format!("stream={stream_id} 预热就地应答 history_items={}", entry.history.len()),
+        );
+        return keep;
+    }
+
     history.extend(input_items.iter().cloned());
 
     if let Some(map) = payload.as_object_mut() {
         // `stream_id` 是 WS 信封字段，不能带进上游请求体；
         // `previous_response_id` 已由本连接消化，留给协议层会被判 400；
-        // `stream` 在 WS 上隐含为真 —— POST 链路据此走 SSE 分支。
+        // `stream` 在 WS 上隐含为真 —— POST 链路据此走 SSE 分支；
+        // `generate` 只在预热时有意义，走到这里就是正常生成。
         map.remove("stream_id");
         map.remove("previous_response_id");
+        map.remove("generate");
         map.insert("stream".to_string(), Value::Bool(true));
         if !history.is_empty() {
             map.insert("input".to_string(), Value::Array(history));
@@ -182,7 +227,7 @@ async fn handle_message(
 
     let body = match serde_json::to_vec(&payload) {
         Ok(body) => Bytes::from(body),
-        Err(_) => return send_error(socket, &stream_id, "请求体序列化失败").await,
+        Err(_) => return send_error(socket, &stream_id, 500, "server_error", None, "请求体序列化失败", None).await,
     };
     let response = responses_endpoint(State(state.clone()), headers.clone(), scope, identity, body).await;
 
@@ -193,25 +238,41 @@ async fn handle_message(
         .unwrap_or_default()
         .to_string();
     if !content_type.starts_with("text/event-stream") {
-        // 早失败（鉴权后的模型校验、协议翻译、上游错误）走的是 JSON 响应，
-        // WS 上没有状态码可用，统一折成一条 error 事件。
+        // 早失败（模型校验、协议翻译、上游错误）走的是 JSON 响应：
+        // 把它的状态码与错误体原样折进包装错误事件。
         let status = response.status();
         let bytes = axum::body::to_bytes(response.into_body(), MAX_ERROR_BODY)
             .await
             .unwrap_or_default();
         let text = String::from_utf8_lossy(&bytes).to_string();
-        let message = serde_json::from_str::<Value>(&text)
-            .ok()
-            .and_then(|value| value.pointer("/error/message").and_then(Value::as_str).map(|text| text.to_string()))
-            .unwrap_or_else(|| {
-                let trimmed = text.trim();
-                if trimmed.is_empty() {
-                    format!("请求失败（HTTP {}）", status.as_u16())
-                } else {
-                    trimmed.to_string()
-                }
-            });
-        return send_error(socket, &stream_id, &message).await;
+        let parsed = serde_json::from_str::<Value>(&text).ok();
+        let field = |key: &str| {
+            parsed
+                .as_ref()
+                .and_then(|value| value.pointer(&format!("/error/{key}")))
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        };
+        let message = field("message").unwrap_or_else(|| {
+            let trimmed = text.trim();
+            if trimmed.is_empty() {
+                format!("请求失败（HTTP {}）", status.as_u16())
+            } else {
+                trimmed.to_string()
+            }
+        });
+        let error_type = field("type").unwrap_or_else(|| error_type_for(status.as_u16()).to_string());
+        let code = field("code");
+        return send_error(
+            socket,
+            &stream_id,
+            status.as_u16(),
+            &error_type,
+            code.as_deref(),
+            &message,
+            None,
+        )
+        .await;
     }
 
     // SSE 帧 → 文本帧：只取 `data:` 载荷，`event:` 行在 JSON 的 type 字段里已有。
@@ -331,16 +392,82 @@ async fn send_event(socket: &mut WebSocket, stream_id: &str, mut value: Value) -
     socket.send(Message::Text(value.to_string().into())).await.is_ok()
 }
 
-/// 下发一条 error 事件（形状与 `ResponsesStream` 的错误帧一致）。
-async fn send_error(socket: &mut WebSocket, stream_id: &str, message: &str) -> bool {
-    logging::verbose("[ResponsesWS]", &format!("error: {message}"));
-    let value = json!({
+/// 是不是 `generate: false` 预热（只认显式的 false，缺省就是正常生成）。
+fn is_warmup(payload: &Value) -> bool {
+    payload.get("generate").and_then(Value::as_bool) == Some(false)
+}
+
+/// 预热的就地应答：`response.created` + 空 output 的 `response.completed`。
+///
+/// 信封走与真实回合同一个构造器（请求侧字段如实回显），`sequence_number`
+/// 从 0 起递增 —— 客户端看到的是一轮合法但没有产出的 Responses 回合。
+async fn send_warmup(socket: &mut WebSocket, stream_id: &str, response_id: &str, request: &Value) -> bool {
+    let model = request.get("model").and_then(Value::as_str).unwrap_or_default();
+    let created = logging::now_ms() / 1000;
+    let mut sequence = 0;
+    let in_progress = response_envelope(response_id, model, "in_progress", Vec::new(), Value::Null, request, created, None);
+    let completed = response_envelope(response_id, model, "completed", Vec::new(), usage_to_responses(None), request, created, None);
+    for (event, response) in [("response.created", in_progress), ("response.completed", completed)] {
+        let frame = response_event(&mut sequence, event, json!({ "response": response }));
+        let Some(value) = frame_payload(&frame) else {
+            continue;
+        };
+        if !send_event(socket, stream_id, value).await {
+            return false;
+        }
+    }
+    true
+}
+
+/// 从 `event: ..\ndata: {..}\n\n` 形态的帧里取出 `data` 那一段 JSON。
+fn frame_payload(frame: &[u8]) -> Option<Value> {
+    let mut buffer = SseLineBuffer::new();
+    let mut frames = buffer.push(frame);
+    frames.extend(buffer.finish());
+    frames
+        .into_iter()
+        .flatten()
+        .find_map(|data| serde_json::from_str::<Value>(&data).ok())
+}
+
+/// HTTP 状态码 → 官方错误分类（错误体里没带 `type` 时的回退）。
+fn error_type_for(status: u16) -> &'static str {
+    match status {
+        401 => "authentication_error",
+        403 => "permission_error",
+        404 => "not_found_error",
+        429 => "rate_limit_error",
+        400..=499 => "invalid_request_error",
+        _ => "server_error",
+    }
+}
+
+/// 组装官方形状的包装错误事件。
+fn error_event(status: u16, error_type: &str, code: Option<&str>, message: &str, param: Option<&str>) -> Value {
+    json!({
         "type": "error",
-        "code": Value::Null,
-        "message": message,
-        "param": Value::Null,
-    });
-    send_event(socket, stream_id, value).await
+        "status": status,
+        "error": {
+            "type": error_type,
+            "code": code,
+            "message": message,
+            "param": param,
+        },
+    })
+}
+
+/// 下发一条包装错误事件（形状见模块头）。
+async fn send_error(
+    socket: &mut WebSocket,
+    stream_id: &str,
+    status: u16,
+    error_type: &str,
+    code: Option<&str>,
+    message: &str,
+    param: Option<&str>,
+) -> bool {
+    logging::verbose("[ResponsesWS]", &format!("error {status}: {message}"));
+    send_event(socket, stream_id, error_event(status, error_type, code, message, param)).await
 }
 
 #[cfg(test)]
@@ -419,5 +546,47 @@ mod tests {
         assert_eq!(stream_id_of(&json!({})), DEFAULT_STREAM_ID);
         assert_eq!(stream_id_of(&json!({ "stream_id": "" })), DEFAULT_STREAM_ID);
         assert_eq!(stream_id_of(&json!({ "stream_id": "s1" })), "s1");
+    }
+
+    #[test]
+    fn warmup_only_when_generate_is_explicit_false() {
+        assert!(is_warmup(&json!({ "generate": false })));
+        assert!(!is_warmup(&json!({ "generate": true })));
+        assert!(!is_warmup(&json!({})));
+        assert!(!is_warmup(&json!({ "generate": "false" })));
+    }
+
+    #[test]
+    fn error_event_matches_codex_wrapped_shape() {
+        let event = error_event(
+            400,
+            "invalid_request_error",
+            Some(PREVIOUS_RESPONSE_NOT_FOUND),
+            "not found",
+            Some("previous_response_id"),
+        );
+        assert_eq!(event["type"], "error");
+        assert_eq!(event["status"], 400);
+        assert_eq!(event["error"]["code"], PREVIOUS_RESPONSE_NOT_FOUND);
+        assert_eq!(event["error"]["param"], "previous_response_id");
+        assert_eq!(event["error"]["message"], "not found");
+    }
+
+    #[test]
+    fn error_type_follows_status() {
+        assert_eq!(error_type_for(401), "authentication_error");
+        assert_eq!(error_type_for(429), "rate_limit_error");
+        assert_eq!(error_type_for(400), "invalid_request_error");
+        assert_eq!(error_type_for(502), "server_error");
+    }
+
+    #[test]
+    fn frame_payload_extracts_data_json() {
+        let mut sequence = 0;
+        let frame = response_event(&mut sequence, "response.created", json!({ "response": { "id": "resp_x" } }));
+        let value = frame_payload(&frame).expect("payload");
+        assert_eq!(value["type"], "response.created");
+        assert_eq!(value["sequence_number"], 0);
+        assert_eq!(value["response"]["id"], "resp_x");
     }
 }
