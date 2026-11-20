@@ -204,11 +204,14 @@ jobs:
   # ── 发布：把两条产物链挂到 tag 对应的 Release ─────────────────
   release:
     needs: [linux-desktop, linux-server]
-    if: startsWith(github.ref, 'refs/tags/')
+    # 手动补发时从 inputs.ref 取 tag 名（workflow_dispatch 运行在分支上，
+    # github.ref 是 refs/heads/*）；tag 推送时走第二个条件。
+    if: startsWith(inputs.ref, 'v') || startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ env.REF }}
           fetch-depth: 0
 
       - name: 下载产物
@@ -228,7 +231,7 @@ jobs:
 
       - name: 生成更新日志
         run: |
-          git log -1 --format=%B "${GITHUB_REF_NAME}" > notes.txt
+          git log -1 --format=%B "${REF}" > notes.txt
           cat notes.txt
 
       - name: 创建或更新 Release
@@ -236,7 +239,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          tag="${GITHUB_REF_NAME}"
+          tag="${REF}"
           prerelease=""
           case "$tag" in *-*) prerelease="--prerelease" ;; esac
           if gh release view "$tag" >/dev/null 2>&1; then
