@@ -140,10 +140,15 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
-  # ── GHCR 镜像（amd64 + arm64）────────────────────────────────
+  # ── GHCR + Docker Hub 镜像（amd64 + arm64）────────────────────
   # builder 固定在 $BUILDPLATFORM，arm64 走 aarch64 交叉工具链，不需要 QEMU。
+  # 同一份清单推两个 registry：Docker Hub 的命名空间跟着 DOCKERHUB_USERNAME 走，
+  # GHCR 用内置 GITHUB_TOKEN（workflow 级 `packages: write`）。
   docker:
     runs-on: ubuntu-latest
+    env:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -151,6 +156,24 @@ jobs:
 
       - name: 设置 buildx
         uses: docker/setup-buildx-action@v4
+
+      # 缺凭据直接失败：两个 registry 都是用户实际在用的地址，静默少推一半
+      # 比红一次更难发现。
+      - name: 校验 Docker Hub 凭据
+        run: |
+          missing=""
+          [ -n "${DOCKERHUB_USERNAME:-}" ] || missing="$missing DOCKERHUB_USERNAME"
+          [ -n "${DOCKERHUB_TOKEN:-}" ]    || missing="$missing DOCKERHUB_TOKEN"
+          if [ -n "$missing" ]; then
+            echo "::error::缺少 secret:$missing（Settings → Secrets and variables → Actions）"
+            exit 1
+          fi
+
+      - name: 登录 Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ env.DOCKERHUB_USERNAME }}
+          password: ${{ env.DOCKERHUB_TOKEN }}
 
       - name: 登录 GHCR
         uses: docker/login-action@v4
@@ -182,7 +205,9 @@ jobs:
         id: meta
         uses: docker/metadata-action@v6
         with:
-          images: ${{ env.GHCR_IMAGE }}
+          images: |
+            ${{ env.DOCKERHUB_USERNAME }}/agent2api
+            ${{ env.GHCR_IMAGE }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
           tags: |
