@@ -243,6 +243,9 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           path: dist
+          # 只取发布用的两条产物链：buildx 的 gha 缓存也会以
+          # `<repo>.<hash>.dockerbuild` 的 artifact 出现，不能跟着挂 Release。
+          pattern: 'linux-*'
           merge-multiple: true
 
       # upload-artifact 会按 path 的公共前缀保留目录结构（linux-desktop 的
