@@ -121,10 +121,9 @@ name: build
 # 各平台安装包是**构建仓库** run 页面上的 workflow artifact；Release 由
 # `scripts/release.sh` 挂到构建仓库（脚本里的 `BUILD_REPO` 已指向那里）。
 
+# fork 里构建由 release-fork.yml 直接执行；本文件只保留手动派发入口，
+# 避免 tag 推送时因缺少 BUILDER_DISPATCH_TOKEN 而失败。
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
     inputs:
       version:
