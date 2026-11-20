@@ -1561,7 +1561,7 @@ impl ResponsesStream {
         // 两者是不同字段，但写成「借用未结束就调 `&mut self` 的方法」会被
         // 借用检查拒绝 —— 所以状态更新收在一个块里（借用随块结束），
         // 块外只留值，再拼事件。
-        let (index, item_id, call_id, name, announced_now, buffered) = {
+        let (index, item_id, call_id, name, announced_now, announced, buffered) = {
             if !self.tools.contains_key(&key) {
                 let next = self.next_index;
                 self.next_index += 1;
@@ -1611,6 +1611,7 @@ impl ResponsesStream {
                 tool.call_id.clone(),
                 tool.name.clone(),
                 announced_now,
+                tool.announced,
                 tool.arguments.clone(),
             )
         };
@@ -1655,7 +1656,10 @@ impl ResponsesStream {
             .pointer("/function/arguments")
             .and_then(Value::as_str)
             .unwrap_or("");
-        if !arguments.is_empty() && !announced_now {
+        // 未宣告的项（还没拿到 name）不发增量：它可能是上游并行 tool_calls 的
+        // 重复分片，收尾时整条丢弃 —— 先发一条没有 added 的 delta，客户端会
+        // 建出一个永远等不到 done 的幽灵项。参数不丢：宣告时随 buffered 补发。
+        if !arguments.is_empty() && announced && !announced_now {
             out.extend(self.tool_delta_event(index, &item_id, &call_id, &name, arguments, is_custom));
         }
         out
@@ -2372,6 +2376,14 @@ mod tests {
         assert_eq!(output.len(), calls.len(), "output 项数与调用数不一致");
         let raw: String = frames.iter().map(|frame| String::from_utf8_lossy(frame).to_string()).collect();
         assert!(!raw.contains("unknown"), "回程出现了 unknown 工具名");
+        // 残片既不能宣告，也不能留下参数增量：没有 added 的 delta 会让客户端
+        // 建出一个永远等不到 done 的幽灵项。
+        let deltas: Vec<&Value> = events
+            .iter()
+            .filter(|event| event["type"] == "response.function_call_arguments.delta")
+            .collect();
+        assert_eq!(deltas.len(), 1, "为重复分片发出了参数增量");
+        assert_eq!(deltas[0]["output_index"], 0);
         assert_eq!(
             events.iter().filter(|event| event["type"] == "response.output_item.added").count(),
             1,
