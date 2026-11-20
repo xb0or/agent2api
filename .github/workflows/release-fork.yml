@@ -217,6 +217,15 @@ jobs:
           path: dist
           merge-multiple: true
 
+      # upload-artifact 会按 path 的公共前缀保留目录结构（linux-desktop 的
+      # 产物落在 dist/deb/ 与 dist/appimage/ 下），直接对 dist/* 调
+      # `gh release create` 会把目录当文件上传并报 `is a directory`。
+      - name: 平铺产物
+        run: |
+          mkdir -p release
+          find dist -type f -exec cp {} release/ \;
+          ls -lh release
+
       - name: 生成更新日志
         run: |
           git log -1 --format=%B "${GITHUB_REF_NAME}" > notes.txt
@@ -231,12 +240,12 @@ jobs:
           prerelease=""
           case "$tag" in *-*) prerelease="--prerelease" ;; esac
           if gh release view "$tag" >/dev/null 2>&1; then
-            gh release upload "$tag" dist/* --clobber
+            gh release upload "$tag" release/* --clobber
           else
             gh release create "$tag" \
               --title "$tag" \
               --notes-file notes.txt \
               $prerelease \
-              dist/*
+              release/*
           fi
           gh release view "$tag" --json assets --jq '.assets[].name'
