@@ -138,6 +138,9 @@ pub mod plugin_ui;
 pub mod plugin_theme;
 pub mod prompt;
 pub mod protocol;
+// `/v1/responses` 的 WebSocket 入口：复用 POST handler 产出的 SSE 帧，
+// 连接内补齐 `previous_response_id`，见该文件模块头
+pub mod responses_ws;
 pub mod proxies;
 pub mod qoder_umid;
 pub mod queue_api;
