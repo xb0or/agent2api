@@ -1418,8 +1418,10 @@ impl ResponsesStream {
             return out;
         }
         out.extend(self.close_reasoning());
-        // 上游什么都没给（空流）：补一条空 message，否则客户端解析不到 output
-        if !self.text_open && self.tools.is_empty() {
+        // 上游什么都没给（空流）：补一条空 message，否则客户端解析不到 output。
+        // 「有工具」只算拿到名字的那些 —— 无名残片会被 close_tools 丢弃，
+        // 让它参与判断会把 output 顶成空数组。
+        if !self.text_open && !self.tools.values().any(|tool| !tool.name.is_empty()) {
             out.extend(self.open_text());
         }
         out.extend(self.close_text());
@@ -1880,17 +1882,18 @@ impl ResponsesStream {
             let Some(tool) = self.tools.get_mut(&key) else {
                 continue;
             };
-            // 既没有名字也没有 call_id：上游并行 tool_calls 按 index 分片时，
-            // 只有 index 0 的帧带 id 与 function.name，其余 index 的帧只有
-            // arguments（内容与 index 0 逐字相同）—— 它们是同一次调用的重复
-            // 分片，不是独立调用。宣告必须带 name，补占位名等于凭空告诉客户端
-            // 「还有一个工具要调用」，所以整条丢弃：不进 output，也不发
+            // 没有名字的残片一律丢弃：上游并行 tool_calls 按 index 分片时，
+            // 只有 index 0 的帧带 function.name，其余 index 的帧只有与 index 0
+            // 逐字相同的 arguments（部分上游还会给它们各自的 id，所以不能拿
+            // call_id 是否为空当判据）。宣告必须带 name，补占位名等于凭空告诉
+            // 客户端「还有一个工具要调用」——客户端执行 `unknown` 只会回
+            // `Invalid tool name format`，这条残片不进 output，也不发
             // output_item 事件。
-            if tool.name.is_empty() && tool.call_id.is_empty() {
+            if tool.name.is_empty() {
                 continue;
             }
             let call_id = if tool.call_id.is_empty() { random_id("call") } else { tool.call_id.clone() };
-            let name = if tool.name.is_empty() { "unknown".to_string() } else { tool.name.clone() };
+            let name = tool.name.clone();
             let arguments = if tool.arguments.is_empty() { "{}".to_string() } else { tool.arguments.clone() };
             // 用统一口径构造 item：custom 命中时要输出 custom_tool_call 与
             // 裸文本 input，类型给错客户端就按 JSON 解析，工具照样跑不起来
@@ -2139,13 +2142,14 @@ impl ResponsesCollector {
                 "summary": [{ "type": "summary_text", "text": self.reasoning }],
             }));
         }
-        // 既无名字也无 call_id 的残片是同一调用的重复分片（判断依据与
-        // `close_tools` 同一口径）：丢弃，不参与 output，也不算一次调用。
+        // 没有名字的残片是同一调用的重复分片（判据与 `close_tools` 同一口径，
+        // 不能看 call_id：部分上游会给残片各自的 id）：丢弃，不参与 output，
+        // 也不算一次调用。
         let tools: Vec<ToolAccum> = self
             .tools
             .into_iter()
             .map(|(_, tool)| tool)
-            .filter(|tool| !(tool.name.is_empty() && tool.call_id.is_empty()))
+            .filter(|tool| !tool.name.is_empty())
             .collect();
         if !self.text.is_empty() || tools.is_empty() {
             output.push(json!({
@@ -2157,7 +2161,7 @@ impl ResponsesCollector {
             }));
         }
         for tool in tools {
-            let name = if tool.name.is_empty() { "unknown".to_string() } else { tool.name };
+            let name = tool.name;
             let call_id = if tool.call_id.is_empty() { random_id("call") } else { tool.call_id };
             let arguments = if tool.arguments.is_empty() { "{}".to_string() } else { tool.arguments };
             // 与另外两个回程出口共用口径：custom 命中时输出 custom_tool_call
@@ -2296,9 +2300,12 @@ mod tests {
         assert_eq!(response["error"], Value::Null);
     }
 
-    /// 上游并行 tool_calls 的真实帧形状：只有 index 0 的帧带 id 与
-    /// function.name，index 1..3 的帧只有与 index 0 逐字相同的 arguments。
-    fn parallel_tool_chunks() -> Vec<Vec<u8>> {
+    /// 上游并行 tool_calls 的真实帧形状：只有 index 0 的帧带 function.name，
+    /// index 1..3 的帧只有与 index 0 逐字相同的 arguments。
+    ///
+    /// `fragment_ids` 为真时给残片各自的 id —— 部分上游就是这么做的，所以
+    /// 判据不能是「call_id 为空」，只能是「没有 name」。
+    fn parallel_tool_chunks(fragment_ids: bool) -> Vec<Vec<u8>> {
         let arguments = r#"{"command":"Get-ChildItem"}"#;
         let mut chunks = vec![chat_chunk(json!({
             "id": "chatcmpl-test",
@@ -2316,12 +2323,14 @@ mod tests {
             }],
         }))];
         for index in 1..4 {
+            let mut call = json!({ "index": index, "function": { "arguments": arguments } });
+            if fragment_ids {
+                call["id"] = Value::String(format!("call_0{index}_fragment"));
+            }
             chunks.push(chat_chunk(json!({
                 "choices": [{
                     "index": 0,
-                    "delta": {
-                        "tool_calls": [{ "index": index, "function": { "arguments": arguments } }],
-                    },
+                    "delta": { "tool_calls": [call] },
                 }],
             })));
         }
@@ -2352,14 +2361,62 @@ mod tests {
 
     /// 流式回程：重复分片不得被宣告成独立调用。
     ///
-    /// index 1..3 既是同一调用的重复帧（无 id、无 name），按占位名宣告会让
-    /// 客户端拿到 3 个不存在的工具调用，而这些调用永远不会被执行。
+    /// index 1..3 是同一调用的重复帧（无 name），按占位名宣告会让客户端拿到
+    /// 3 个不存在的工具调用，而这些调用永远不会被执行 —— 实际表现是客户端
+    /// 执行 `unknown` 后回 `Invalid tool name format`。
     #[test]
     fn stream_announces_one_call_for_duplicated_parallel_fragments() {
+        for fragment_ids in [false, true] {
+            let request = json!({ "model": "gpt-test" });
+            let mut stream = ResponsesStream::new("gpt-test", &request);
+            let mut frames = Vec::new();
+            for chunk in parallel_tool_chunks(fragment_ids) {
+                frames.extend(stream.push(&chunk));
+            }
+
+            let events = events_of(&frames);
+            let completed = events
+                .iter()
+                .find(|event| event["type"] == "response.completed")
+                .expect("缺少 response.completed");
+            let output = completed["response"]["output"].as_array().expect("缺少 output");
+
+            let calls = function_calls(output);
+            assert_eq!(calls.len(), 1, "重复分片被当成了独立调用（fragment_ids={fragment_ids}）");
+            assert_eq!(calls[0]["name"], "bash-terminal-execute");
+            assert_eq!(output.len(), calls.len(), "output 项数与调用数不一致");
+            let raw: String = frames.iter().map(|frame| String::from_utf8_lossy(frame).to_string()).collect();
+            assert!(!raw.contains("unknown"), "回程出现了 unknown 工具名");
+            // 残片既不能宣告，也不能留下参数增量：没有 added 的 delta 会让客户端
+            // 建出一个永远等不到 done 的幽灵项。
+            let deltas: Vec<&Value> = events
+                .iter()
+                .filter(|event| event["type"] == "response.function_call_arguments.delta")
+                .collect();
+            assert_eq!(deltas.len(), 1, "为重复分片发出了参数增量");
+            assert_eq!(deltas[0]["output_index"], 0);
+            assert_eq!(
+                events.iter().filter(|event| event["type"] == "response.output_item.added").count(),
+                1,
+                "为重复分片发出了 output_item.added"
+            );
+            assert_eq!(
+                events.iter().filter(|event| event["type"] == "response.output_item.done").count(),
+                1,
+                "为重复分片发出了 output_item.done"
+            );
+        }
+    }
+
+    /// 上游只回了无名残片（name 分片丢失）：产出一条空 message，而不是空 output。
+    #[test]
+    fn stream_keeps_message_when_only_unnamed_fragments_arrive() {
         let request = json!({ "model": "gpt-test" });
         let mut stream = ResponsesStream::new("gpt-test", &request);
         let mut frames = Vec::new();
-        for chunk in parallel_tool_chunks() {
+        let mut chunks = parallel_tool_chunks(true);
+        chunks.remove(0); // 去掉唯一带 name 的那帧
+        for chunk in chunks {
             frames.extend(stream.push(&chunk));
         }
 
@@ -2370,51 +2427,32 @@ mod tests {
             .expect("缺少 response.completed");
         let output = completed["response"]["output"].as_array().expect("缺少 output");
 
-        let calls = function_calls(output);
-        assert_eq!(calls.len(), 1, "重复分片被当成了独立调用");
-        assert_eq!(calls[0]["name"], "bash-terminal-execute");
-        assert_eq!(output.len(), calls.len(), "output 项数与调用数不一致");
-        let raw: String = frames.iter().map(|frame| String::from_utf8_lossy(frame).to_string()).collect();
-        assert!(!raw.contains("unknown"), "回程出现了 unknown 工具名");
-        // 残片既不能宣告，也不能留下参数增量：没有 added 的 delta 会让客户端
-        // 建出一个永远等不到 done 的幽灵项。
-        let deltas: Vec<&Value> = events
-            .iter()
-            .filter(|event| event["type"] == "response.function_call_arguments.delta")
-            .collect();
-        assert_eq!(deltas.len(), 1, "为重复分片发出了参数增量");
-        assert_eq!(deltas[0]["output_index"], 0);
-        assert_eq!(
-            events.iter().filter(|event| event["type"] == "response.output_item.added").count(),
-            1,
-            "为重复分片发出了 output_item.added"
-        );
-        assert_eq!(
-            events.iter().filter(|event| event["type"] == "response.output_item.done").count(),
-            1,
-            "为重复分片发出了 output_item.done"
-        );
+        assert!(function_calls(output).is_empty(), "无名残片被宣告成了调用");
+        assert_eq!(output.len(), 1, "output 应当是一条空 message");
+        assert_eq!(output[0]["type"], "message");
     }
 
     /// 非流式聚合：同一个上游流收成的响应里也只能有这一次调用。
     #[test]
     fn collector_drops_duplicated_parallel_fragments() {
-        let request = json!({ "model": "gpt-test" });
-        let mut collector = ResponsesCollector::new();
-        for chunk in parallel_tool_chunks() {
-            collector.push(&chunk);
-        }
-        collector.finish();
+        for fragment_ids in [false, true] {
+            let request = json!({ "model": "gpt-test" });
+            let mut collector = ResponsesCollector::new();
+            for chunk in parallel_tool_chunks(fragment_ids) {
+                collector.push(&chunk);
+            }
+            collector.finish();
 
-        let response = collector.into_response("gpt-test", &request);
-        let output = response["output"].as_array().expect("缺少 output");
-        let calls = function_calls(output);
-        assert_eq!(calls.len(), 1, "重复分片被当成了独立调用");
-        assert_eq!(calls[0]["name"], "bash-terminal-execute");
-        assert_eq!(output.len(), calls.len(), "output 项数与调用数不一致");
-        assert!(
-            !serde_json::to_string(&response).unwrap().contains("unknown"),
-            "回程出现了 unknown 工具名"
-        );
+            let response = collector.into_response("gpt-test", &request);
+            let output = response["output"].as_array().expect("缺少 output");
+            let calls = function_calls(output);
+            assert_eq!(calls.len(), 1, "重复分片被当成了独立调用（fragment_ids={fragment_ids}）");
+            assert_eq!(calls[0]["name"], "bash-terminal-execute");
+            assert_eq!(output.len(), calls.len(), "output 项数与调用数不一致");
+            assert!(
+                !serde_json::to_string(&response).unwrap().contains("unknown"),
+                "回程出现了 unknown 工具名"
+            );
+        }
     }
 }
