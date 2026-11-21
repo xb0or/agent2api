@@ -1026,6 +1026,10 @@ pub fn responses_from_chat(
     }
     let text = content_text(message.get("content").unwrap_or(&Value::Null));
     let tool_calls = message.get("tool_calls").and_then(Value::as_array).filter(|calls| !calls.is_empty());
+    // 上游把失败写在 `finish_reason` 里时（如 ZCode 活动套餐通道的
+    // `network_error`）不能落成 `completed`，否则客户端收到的是「成功但空」；
+    // 判据与流式的 `ResponsesStream::finish` 同一张表（`finish_failure`）。
+    let failure = finish_failure(Some(&finish));
     let incomplete = responses_phase::incomplete_reason(Some(&finish));
     // 没有工具调用时始终给一条 message 项（哪怕文本为空）：
     // 客户端的 `output_text` 解析依赖它存在，缺失会被当成「响应损坏」
@@ -1060,7 +1064,13 @@ pub fn responses_from_chat(
         }
     }
 
-    let status = if incomplete.is_some() { "incomplete" } else { "completed" };
+    let status = if failure.is_some() {
+        "failed"
+    } else if incomplete.is_some() {
+        "incomplete"
+    } else {
+        "completed"
+    };
     let created = chat
         .get("created")
         .and_then(Value::as_i64)
@@ -1079,6 +1089,14 @@ pub fn responses_from_chat(
         created,
         incomplete,
     );
+    if let Some((code, message)) = failure {
+        if let Some(map) = body.as_object_mut() {
+            map.insert(
+                "error".to_string(),
+                json!({ "code": code, "message": message }),
+            );
+        }
+    }
     if let Some(map) = body.as_object_mut() {
         // output_text 是官方 SDK 的便捷字段（把所有 message 项的文本拼起来）
         map.insert("output_text".to_string(), Value::String(text));
@@ -1354,8 +1372,10 @@ impl ResponsesStream {
             return out;
         }
         out.extend(self.close_reasoning());
-        // 上游什么都没给（空流）：补一条空 message，否则客户端解析不到 output
-        if !self.text_open && self.tools.is_empty() {
+        // 上游什么都没给（空流）：补一条空 message，否则客户端解析不到 output。
+        // 「有工具」只算拿到名字的那些 —— 无名残片会被 close_tools 丢弃，
+        // 让它参与判断会把 output 顶成空数组。
+        if !self.text_open && !self.tools.values().any(|tool| !tool.name.is_empty()) {
             out.extend(self.open_text());
         }
         let incomplete = responses_phase::incomplete_reason(self.finish_reason.as_deref());
@@ -1501,7 +1521,7 @@ impl ResponsesStream {
         // 两者是不同字段，但写成「借用未结束就调 `&mut self` 的方法」会被
         // 借用检查拒绝 —— 所以状态更新收在一个块里（借用随块结束），
         // 块外只留值，再拼事件。
-        let (index, item_id, call_id, name, announced_now, buffered) = {
+        let (index, item_id, call_id, name, announced_now, announced, buffered) = {
             if !self.tools.contains_key(&key) {
                 let next = self.next_index;
                 self.next_index += 1;
@@ -1551,6 +1571,7 @@ impl ResponsesStream {
                 tool.call_id.clone(),
                 tool.name.clone(),
                 announced_now,
+                tool.announced,
                 tool.arguments.clone(),
             )
         };
@@ -1595,7 +1616,10 @@ impl ResponsesStream {
             .pointer("/function/arguments")
             .and_then(Value::as_str)
             .unwrap_or("");
-        if !arguments.is_empty() && !announced_now {
+        // 未宣告的项（还没拿到 name）不发增量：它可能是上游并行 tool_calls 的
+        // 重复分片，收尾时整条丢弃 —— 先发一条没有 added 的 delta，客户端会
+        // 建出一个永远等不到 done 的幽灵项。参数不丢：宣告时随 buffered 补发。
+        if !arguments.is_empty() && announced && !announced_now {
             out.extend(self.tool_delta_event(index, &item_id, &call_id, &name, arguments, is_custom));
         }
         out
@@ -1818,10 +1842,18 @@ impl ResponsesStream {
             let Some(tool) = self.tools.get_mut(&key) else {
                 continue;
             };
+            // 没有名字的残片一律丢弃：上游并行 tool_calls 按 index 分片时，
+            // 只有 index 0 的帧带 function.name，其余 index 的帧只有与 index 0
+            // 逐字相同的 arguments（部分上游还会给它们各自的 id，所以不能拿
+            // call_id 是否为空当判据）。宣告必须带 name，补占位名等于凭空告诉
+            // 客户端「还有一个工具要调用」——客户端执行 `unknown` 只会回
+            // `Invalid tool name format`，这条残片不进 output，也不发
+            // output_item 事件。
+            if tool.name.is_empty() {
+                continue;
+            }
             let call_id = if tool.call_id.is_empty() { random_id("call") } else { tool.call_id.clone() };
-            // 只拿到 index、没拿到名字的残片：不能宣告（宣告要 name），
-            // 但也不能丢 —— 补一个占位名，否则客户端少一次工具调用
-            let name = if tool.name.is_empty() { "unknown".to_string() } else { tool.name.clone() };
+            let name = tool.name.clone();
             let arguments = if tool.arguments.is_empty() { "{}".to_string() } else { tool.arguments.clone() };
             // 用统一口径构造 item：custom 命中时要输出 custom_tool_call 与
             // 裸文本 input，类型给错客户端就按 JSON 解析，工具照样跑不起来
@@ -1906,6 +1938,45 @@ pub fn response_event(sequence: &mut i64, event: &str, mut data: Value) -> bytes
         map.insert("sequence_number".to_string(), Value::from(current));
     }
     event_frame(event, &data)
+}
+
+pub fn completion_events(response: &Value) -> Vec<bytes::Bytes> {
+    let mut sequence = 0;
+    let mut frames = Vec::new();
+    let mut in_progress = response.clone();
+    if let Some(map) = in_progress.as_object_mut() {
+        map.insert("status".to_string(), Value::String("in_progress".to_string()));
+        map.insert("output".to_string(), Value::Array(Vec::new()));
+        map.insert("completed_at".to_string(), Value::Null);
+    }
+    frames.push(response_event(
+        &mut sequence,
+        "response.created",
+        json!({ "response": in_progress }),
+    ));
+    // 每个输出项按 `output_index` 顺序补一条 done（聚合体没有增量，只发 done）。
+    if let Some(items) = response.get("output").and_then(Value::as_array) {
+        for (index, item) in items.iter().enumerate() {
+            frames.push(response_event(
+                &mut sequence,
+                "response.output_item.done",
+                json!({ "output_index": index as i64, "item": item.clone() }),
+            ));
+        }
+    }
+    // 聚合体的 status 决定终态事件名：incomplete 是「正常但没跑完」，
+    // failed 是失败，其余按 completed 收尾。
+    let terminal = match response.get("status").and_then(Value::as_str) {
+        Some("incomplete") => "response.incomplete",
+        Some("failed") => "response.failed",
+        _ => "response.completed",
+    };
+    frames.push(response_event(
+        &mut sequence,
+        terminal,
+        json!({ "response": response.clone() }),
+    ));
+    frames
 }
 
 /// 非流式聚合：把 Chat SSE 字节流收成一个 Responses 响应对象。
@@ -2026,7 +2097,17 @@ impl ResponsesCollector {
             }));
         }
         let incomplete = responses_phase::incomplete_reason(self.finish_reason.as_deref());
-        if !self.text.is_empty() || self.tools.is_empty() {
+        let failure = finish_failure(self.finish_reason.as_deref());
+        // 没有名字的残片是同一调用的重复分片（判据与 `close_tools` 同一口径，
+        // 不能看 call_id：部分上游会给残片各自的 id）：丢弃，不参与 output，
+        // 也不算一次调用。
+        let tools: Vec<ToolAccum> = self
+            .tools
+            .into_iter()
+            .map(|(_, tool)| tool)
+            .filter(|tool| !tool.name.is_empty())
+            .collect();
+        if !self.text.is_empty() || tools.is_empty() {
             let mut item = json!({
                 "type": "message",
                 "id": random_id("msg"),
@@ -2036,20 +2117,26 @@ impl ResponsesCollector {
             });
             if reasoning_collapse {
                 responses_phase::apply(&mut item, responses_phase::message_phase(
-                    self.finish_reason.as_deref(), !self.tools.is_empty(), self.saw_done && self.phase_eligible,
+                    self.finish_reason.as_deref(), !tools.is_empty(), self.saw_done && self.phase_eligible,
                 ));
             }
             output.push(item);
         }
-        for (_, tool) in self.tools {
-            let name = if tool.name.is_empty() { "unknown".to_string() } else { tool.name };
+        for tool in tools {
+            let name = tool.name;
             let call_id = if tool.call_id.is_empty() { random_id("call") } else { tool.call_id };
             let arguments = if tool.arguments.is_empty() { "{}".to_string() } else { tool.arguments };
             // 与另外两个回程出口共用口径：custom 命中时输出 custom_tool_call
             // （item id 的前缀由 tool_call_item 内部按类型选，不必在这里管）
             output.push(tool_call_item(&name, &call_id, &arguments, &plan));
         }
-        let status = if incomplete.is_some() { "incomplete" } else { "completed" };
+        let status = if failure.is_some() {
+            "failed"
+        } else if incomplete.is_some() {
+            "incomplete"
+        } else {
+            "completed"
+        };
         let id = if self.id.is_empty() { random_id("resp") } else { self.id.clone() };
         let mut body = response_envelope(
             &id,
@@ -2061,6 +2148,14 @@ impl ResponsesCollector {
             self.created,
             incomplete,
         );
+        if let Some((code, message)) = failure {
+            if let Some(map) = body.as_object_mut() {
+                map.insert(
+                    "error".to_string(),
+                    json!({ "code": code, "message": message }),
+                );
+            }
+        }
         if let Some(map) = body.as_object_mut() {
             map.insert("output_text".to_string(), Value::String(self.text));
         }
@@ -2204,5 +2299,203 @@ mod tests {
             true,
         );
         assert_eq!(commentary["output"][0]["phase"], "commentary");
+    }
+
+    /// 上游并行 tool_calls 的真实帧形状：只有 index 0 的帧带 function.name，
+    /// index 1..3 的帧只有与 index 0 逐字相同的 arguments。
+    ///
+    /// `fragment_ids` 为真时给残片各自的 id —— 部分上游就是这么做的，所以
+    /// 判据不能是「call_id 为空」，只能是「没有 name」。
+    fn parallel_tool_chunks(fragment_ids: bool) -> Vec<Vec<u8>> {
+        let arguments = r#"{"command":"Get-ChildItem"}"#;
+        let mut chunks = vec![chat_chunk(json!({
+            "id": "chatcmpl-test",
+            "created": 1_700_000_000,
+            "choices": [{
+                "index": 0,
+                "delta": {
+                    "tool_calls": [{
+                        "index": 0,
+                        "id": "call_abc",
+                        "type": "function",
+                        "function": { "name": "bash-terminal-execute", "arguments": arguments },
+                    }],
+                },
+            }],
+        }))];
+        for index in 1..4 {
+            let mut call = json!({ "index": index, "function": { "arguments": arguments } });
+            if fragment_ids {
+                call["id"] = Value::String(format!("call_0{index}_fragment"));
+            }
+            chunks.push(chat_chunk(json!({
+                "choices": [{
+                    "index": 0,
+                    "delta": { "tool_calls": [call] },
+                }],
+            })));
+        }
+        chunks.push(b"data: [DONE]\n\n".to_vec());
+        chunks
+    }
+
+    fn chat_chunk(value: Value) -> Vec<u8> {
+        format!("data: {}\n\n", serde_json::to_string(&value).unwrap()).into_bytes()
+    }
+
+    fn events_of(frames: &[bytes::Bytes]) -> Vec<Value> {
+        let mut buffer = SseLineBuffer::new();
+        let mut payloads = Vec::new();
+        for frame in frames {
+            payloads.extend(buffer.push(frame));
+        }
+        payloads
+            .into_iter()
+            .flatten()
+            .filter_map(|data| serde_json::from_str::<Value>(&data).ok())
+            .collect()
+    }
+
+    fn function_calls(output: &[Value]) -> Vec<&Value> {
+        output.iter().filter(|item| item["type"] == "function_call").collect()
+    }
+
+    /// `finish_reason` 里的失败信号要落到 `status: failed` 与 `error`，
+    /// 与流式的 `finish_failure` 同一判据。
+    #[test]
+    fn completion_with_network_error_is_failed() {
+        let response = responses_from_chat(
+            &json!({
+                "id": "chatcmpl_x",
+                "choices": [{
+                    "message": { "role": "assistant", "content": "" },
+                    "finish_reason": "network_error"
+                }]
+            }),
+            "m",
+            &json!({}),
+            false,
+        );
+        assert_eq!(response["status"], "failed");
+        assert_eq!(response["error"]["code"], "upstream_network_error");
+        assert!(response["error"]["message"]
+            .as_str()
+            .is_some_and(|text| !text.is_empty()));
+    }
+
+    /// 正常的 `stop` 不受失败判定影响。
+    #[test]
+    fn completion_with_stop_is_completed() {
+        let response = responses_from_chat(
+            &json!({
+                "id": "chatcmpl_y",
+                "choices": [{
+                    "message": { "role": "assistant", "content": "好" },
+                    "finish_reason": "stop"
+                }]
+            }),
+            "m",
+            &json!({}),
+            false,
+        );
+        assert_eq!(response["status"], "completed");
+        assert_eq!(response["error"], Value::Null);
+    }
+
+    /// 流式回程：重复分片不得被宣告成独立调用。
+    ///
+    /// index 1..3 是同一调用的重复帧（无 name），按占位名宣告会让客户端拿到
+    /// 3 个不存在的工具调用，而这些调用永远不会被执行 —— 实际表现是客户端
+    /// 执行 `unknown` 后回 `Invalid tool name format`。
+    #[test]
+    fn stream_announces_one_call_for_duplicated_parallel_fragments() {
+        for fragment_ids in [false, true] {
+            let request = json!({ "model": "gpt-test" });
+            let mut stream = ResponsesStream::new("gpt-test", &request, false);
+            let mut frames = Vec::new();
+            for chunk in parallel_tool_chunks(fragment_ids) {
+                frames.extend(stream.push(&chunk));
+            }
+
+            let events = events_of(&frames);
+            let completed = events
+                .iter()
+                .find(|event| event["type"] == "response.completed")
+                .expect("缺少 response.completed");
+            let output = completed["response"]["output"].as_array().expect("缺少 output");
+
+            let calls = function_calls(output);
+            assert_eq!(calls.len(), 1, "重复分片被当成了独立调用（fragment_ids={fragment_ids}）");
+            assert_eq!(calls[0]["name"], "bash-terminal-execute");
+            assert_eq!(output.len(), calls.len(), "output 项数与调用数不一致");
+            let raw: String = frames.iter().map(|frame| String::from_utf8_lossy(frame).to_string()).collect();
+            assert!(!raw.contains("unknown"), "回程出现了 unknown 工具名");
+            // 残片既不能宣告，也不能留下参数增量：没有 added 的 delta 会让客户端
+            // 建出一个永远等不到 done 的幽灵项。
+            let deltas: Vec<&Value> = events
+                .iter()
+                .filter(|event| event["type"] == "response.function_call_arguments.delta")
+                .collect();
+            assert_eq!(deltas.len(), 1, "为重复分片发出了参数增量");
+            assert_eq!(deltas[0]["output_index"], 0);
+            assert_eq!(
+                events.iter().filter(|event| event["type"] == "response.output_item.added").count(),
+                1,
+                "为重复分片发出了 output_item.added"
+            );
+            assert_eq!(
+                events.iter().filter(|event| event["type"] == "response.output_item.done").count(),
+                1,
+                "为重复分片发出了 output_item.done"
+            );
+        }
+    }
+
+    /// 上游只回了无名残片（name 分片丢失）：产出一条空 message，而不是空 output。
+    #[test]
+    fn stream_keeps_message_when_only_unnamed_fragments_arrive() {
+        let request = json!({ "model": "gpt-test" });
+        let mut stream = ResponsesStream::new("gpt-test", &request, false);
+        let mut frames = Vec::new();
+        let mut chunks = parallel_tool_chunks(true);
+        chunks.remove(0); // 去掉唯一带 name 的那帧
+        for chunk in chunks {
+            frames.extend(stream.push(&chunk));
+        }
+
+        let events = events_of(&frames);
+        let completed = events
+            .iter()
+            .find(|event| event["type"] == "response.completed")
+            .expect("缺少 response.completed");
+        let output = completed["response"]["output"].as_array().expect("缺少 output");
+
+        assert!(function_calls(output).is_empty(), "无名残片被宣告成了调用");
+        assert_eq!(output.len(), 1, "output 应当是一条空 message");
+        assert_eq!(output[0]["type"], "message");
+    }
+
+    /// 非流式聚合：同一个上游流收成的响应里也只能有这一次调用。
+    #[test]
+    fn collector_drops_duplicated_parallel_fragments() {
+        for fragment_ids in [false, true] {
+            let request = json!({ "model": "gpt-test" });
+            let mut collector = ResponsesCollector::new();
+            for chunk in parallel_tool_chunks(fragment_ids) {
+                collector.push(&chunk);
+            }
+            collector.finish();
+
+            let response = collector.into_response("gpt-test", &request, false);
+            let output = response["output"].as_array().expect("缺少 output");
+            let calls = function_calls(output);
+            assert_eq!(calls.len(), 1, "重复分片被当成了独立调用（fragment_ids={fragment_ids}）");
+            assert_eq!(calls[0]["name"], "bash-terminal-execute");
+            assert_eq!(output.len(), calls.len(), "output 项数与调用数不一致");
+            assert!(
+                !serde_json::to_string(&response).unwrap().contains("unknown"),
+                "回程出现了 unknown 工具名"
+            );
+        }
     }
 }

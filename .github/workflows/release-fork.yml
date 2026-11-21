@@ -1,0 +1,282 @@
+name: release-fork
+
+# fork 专用发布流水线：Linux 桌面端、Linux 服务端包与 GHCR 镜像。
+#
+# 与原仓库的分工不同：原仓库 build.yml 只做跨仓库派发（构建在
+# Agent2Builder/agent2api-releases），docker.yml 也已搬过去。fork 里没有那条
+# 派发链的凭据，所以这里直接在本仓库构建，并只保留 Linux 两条产物链与镜像。
+#
+# 产物与发布：
+#   · linux-desktop → deb + AppImage（artifact: linux-desktop）
+#   · linux-server  → agent2api-server-linux-{amd64,arm64}.tar.gz 与 .sha256
+#   · docker        → ghcr.io/<owner>/agent2api:<版本>，预发布额外打 :beta
+#   · release       → 前两条都成功后创建 / 更新 GitHub Release，tag 含 `-` 时标 prerelease
+#
+# Docker Hub 未包含：它需要 fork 里没有的 DOCKERHUB_* 凭据。GHCR 用内置
+# GITHUB_TOKEN（workflow 级 `packages: write`），不需要额外 secret。
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: '要构建的 git ref（tag 或分支）'
+        required: true
+        type: string
+
+env:
+  RUST_BACKTRACE: 1
+  REF: ${{ github.event.inputs.ref || github.ref_name }}
+  # 容器仓库路径必须全小写
+  GHCR_IMAGE: ghcr.io/${{ github.repository_owner }}/agent2api
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  # ── Linux 桌面端（deb + AppImage）────────────────────────────
+  # 与 macOS / Windows 同一份 Tauri 工程，但 Linux 必须用
+  # tauri.linux.conf.json 覆盖 targets（基础配置是 Windows 的 nsis）。
+  linux-desktop:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.REF }}
+
+      - name: 安装 Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: desktop-tauri/package-lock.json
+
+      - name: 安装 Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: 缓存 Rust 依赖
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop-tauri/src-tauri -> ../../target
+
+      # Tauri 在 Linux 上的硬要求：webkit2gtk（WebView）、gtk3（窗口层）、
+      # ayatana-appindicator3（托盘）、librsvg2（图标转换）、patchelf（AppImage 改 RPATH）。
+      - name: 安装 Linux 构建依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            build-essential
+          pkg-config --modversion webkit2gtk-4.1 gtk+-3.0 ayatana-appindicator3-0.1
+
+      - name: 安装桌面端依赖
+        run: npm --prefix desktop-tauri ci
+
+      - name: 构建 Linux 桌面端安装包
+        run: npm --prefix desktop-tauri run build -- --config src-tauri/tauri.linux.conf.json
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v7
+        with:
+          name: linux-desktop
+          path: |
+            target/release/bundle/deb/*.deb
+            target/release/bundle/appimage/*.AppImage
+          if-no-files-found: error
+
+  # ── Linux 服务端包（容器内一键更新的载荷）─────────────────────
+  # 走 Dockerfile 的 bundle 阶段，与镜像同源同工具链；包内根下的
+  # agent2api-server 与 ui/ 是 selfupdate 的硬约定。
+  linux-server:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.REF }}
+
+      - name: 设置 buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: 构建服务端包
+        run: |
+          docker buildx build \
+            --platform linux/${{ matrix.arch }} \
+            --target bundle \
+            --output type=local,dest=out \
+            --cache-from type=gha \
+            --cache-to type=gha,mode=max \
+            .
+
+      - name: 打包并生成校验和
+        run: |
+          name="agent2api-server-linux-${{ matrix.arch }}.tar.gz"
+          mkdir -p dist stage
+          rm -rf stage/pkg
+          mkdir -p stage/pkg
+          cp -r out/bundle/agent2api-server out/bundle/ui stage/pkg/
+          cp packaging/linux/install.sh \
+             packaging/linux/agent2api.service \
+             packaging/linux/agent2api.env.example stage/pkg/
+          tar -C stage/pkg -czf "dist/$name" agent2api-server ui \
+            install.sh agent2api.service agent2api.env.example
+          ( cd dist && sha256sum "$name" > "$name.sha256" )
+          cat "dist/$name.sha256"
+          ls -lh dist
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v7
+        with:
+          name: linux-server-${{ matrix.arch }}
+          path: dist/*
+          if-no-files-found: error
+
+  # ── GHCR + Docker Hub 镜像（amd64 + arm64）────────────────────
+  # builder 固定在 $BUILDPLATFORM，arm64 走 aarch64 交叉工具链，不需要 QEMU。
+  # 同一份清单推两个 registry：Docker Hub 的命名空间跟着 DOCKERHUB_USERNAME 走，
+  # GHCR 用内置 GITHUB_TOKEN（workflow 级 `packages: write`）。
+  docker:
+    runs-on: ubuntu-latest
+    env:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.REF }}
+
+      - name: 设置 buildx
+        uses: docker/setup-buildx-action@v4
+
+      # 缺凭据直接失败：两个 registry 都是用户实际在用的地址，静默少推一半
+      # 比红一次更难发现。
+      - name: 校验 Docker Hub 凭据
+        run: |
+          missing=""
+          [ -n "${DOCKERHUB_USERNAME:-}" ] || missing="$missing DOCKERHUB_USERNAME"
+          [ -n "${DOCKERHUB_TOKEN:-}" ]    || missing="$missing DOCKERHUB_TOKEN"
+          if [ -n "$missing" ]; then
+            echo "::error::缺少 secret:$missing（Settings → Secrets and variables → Actions）"
+            exit 1
+          fi
+
+      - name: 登录 Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ env.DOCKERHUB_USERNAME }}
+          password: ${{ env.DOCKERHUB_TOKEN }}
+
+      - name: 登录 GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 解析版本
+        id: version
+        run: |
+          set -euo pipefail
+          ref=""
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            ref="${GITHUB_REF_NAME}"
+          else
+            ref="${{ env.REF }}"
+          fi
+          version="${ref#v}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          case "$version" in
+            *-*) echo "prerelease=true" >> "$GITHUB_OUTPUT" ;;
+            *)   echo "prerelease=false" >> "$GITHUB_OUTPUT" ;;
+          esac
+          echo "镜像版本 $version"
+
+      # latest 只跟正式版走；预发布打 :beta，不移动 :latest。
+      - name: 生成镜像 tag
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: |
+            ${{ env.DOCKERHUB_USERNAME }}/agent2api
+            ${{ env.GHCR_IMAGE }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+          tags: |
+            type=raw,value=${{ steps.version.outputs.version }}
+            type=raw,value=latest,enable=${{ steps.version.outputs.prerelease == 'false' }}
+            type=raw,value=beta,enable=${{ steps.version.outputs.prerelease == 'true' }}
+
+      - name: 构建并推送
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ── 发布：把两条产物链挂到 tag 对应的 Release ─────────────────
+  release:
+    needs: [linux-desktop, linux-server]
+    # 手动补发时从 inputs.ref 取 tag 名（workflow_dispatch 运行在分支上，
+    # github.ref 是 refs/heads/*）；tag 推送时走第二个条件。
+    if: startsWith(inputs.ref, 'v') || startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.REF }}
+          fetch-depth: 0
+
+      - name: 下载产物
+        uses: actions/download-artifact@v8
+        with:
+          path: dist
+          # 只取发布用的两条产物链：buildx 的 gha 缓存也会以
+          # `<repo>.<hash>.dockerbuild` 的 artifact 出现，不能跟着挂 Release。
+          pattern: 'linux-*'
+          merge-multiple: true
+
+      # upload-artifact 会按 path 的公共前缀保留目录结构（linux-desktop 的
+      # 产物落在 dist/deb/ 与 dist/appimage/ 下），直接对 dist/* 调
+      # `gh release create` 会把目录当文件上传并报 `is a directory`。
+      - name: 平铺产物
+        run: |
+          mkdir -p release
+          find dist -type f -exec cp {} release/ \;
+          ls -lh release
+
+      - name: 生成更新日志
+        run: |
+          git log -1 --format=%B "${REF}" > notes.txt
+          cat notes.txt
+
+      - name: 创建或更新 Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="${REF}"
+          prerelease=""
+          case "$tag" in *-*) prerelease="--prerelease" ;; esac
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" release/* --clobber
+          else
+            gh release create "$tag" \
+              --title "$tag" \
+              --notes-file notes.txt \
+              $prerelease \
+              release/*
+          fi
+          gh release view "$tag" --json assets --jq '.assets[].name'
