@@ -216,6 +216,7 @@ pub async fn responses_endpoint(
     // telemetry 在这里创建（不再由 forward_chat 代建）：进行中行要在
     // 转发开始前插入，见下方 record_started。
     let telemetry = Arc::new(RequestTelemetry::with_model_key(key_source.map(|Extension(source)| source)));
+    telemetry.note_downstream_request_id(&headers);
     let client_model = pipeline::model_field_text(&raw);
     telemetry.capture_prompt_request(&source, &client_model);
     // 「进行中」行（与 /v1/chat/completions 同一处时点：模型解析成功、
@@ -441,6 +442,7 @@ pub async fn messages_endpoint(
     // telemetry 在这里创建（与 responses_endpoint 同理：进行中行要在
     // 转发开始前插入）
     let telemetry = Arc::new(RequestTelemetry::with_model_key(key_source.map(|Extension(source)| source)));
+    telemetry.note_downstream_request_id(&headers);
     let client_model = pipeline::model_field_text(&raw);
     telemetry.capture_prompt_request(&source, &client_model);
     // 流式 `message_start` 的输入锚点：上游 usage 要等流末尾那帧才到，先按

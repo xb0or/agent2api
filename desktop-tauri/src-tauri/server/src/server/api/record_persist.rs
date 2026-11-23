@@ -73,6 +73,8 @@ fn persist(context: &RecordContext, fallback_error: Option<String>) {
     entry.client_model = context.client_model.clone();
     entry.upstream_model = snapshot.upstream_model;
     entry.returned_model = snapshot.returned_model;
+    entry.downstream_request_id = snapshot.downstream_request_id;
+    entry.upstream_request_id = snapshot.upstream_request_id;
     entry.client_reasoning = context.client_reasoning.clone();
     entry.upstream_reasoning = snapshot.upstream_reasoning;
     entry.attempt_details = stored_attempt_details(&snapshot.attempts_detail);

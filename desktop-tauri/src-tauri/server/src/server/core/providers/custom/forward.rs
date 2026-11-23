@@ -245,6 +245,7 @@ pub(crate) async fn forward(
     let response = send_chat_request(&transport)
         .await
         .map_err(|error| error.to_gateway_error())?;
+    telemetry.note_upstream_request_id(response.headers());
 
     // ── 响应：2xx 打包 outcome；非 2xx 分类（见模块头）────────────────
     let status = response.status().as_u16();

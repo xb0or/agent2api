@@ -137,6 +137,8 @@ type RequestRow = {
   clientModel?: unknown
   upstreamModel?: unknown
   returnedModel?: unknown
+  downstreamRequestId?: unknown
+  upstreamRequestId?: unknown
   clientReasoning?: unknown
   upstreamReasoning?: unknown
   accountId?: unknown
@@ -436,6 +438,7 @@ function AttemptsTable({ row, loading }: { row: RequestRow; loading?: boolean })
     <>
       <div className='mb-2 text-muted-foreground'>
         {t('请求 ID')} <span className='select-all font-mono text-[11px] text-foreground'>{String(row.id ?? '').trim() || '—'}</span>
+        {String(row.upstreamRequestId ?? '').trim() ? <span className='ml-3'>{t('上游')} <span className='select-all font-mono text-[11px] text-foreground'>{String(row.upstreamRequestId).trim()}</span></span> : null}
       </div>
       <Table className='text-[11.5px]'>
       <TableHeader>
@@ -539,6 +542,8 @@ export function RequestDetailPane({ row, loadingDetail = false }: { row: Request
       <TableBody>
         <Field label={t('时间')}>{fmtTime(row.ts)}</Field>
         <Field label={t('请求 ID')}><span className='select-all break-all font-mono text-[11.5px]'>{String(row.id ?? '').trim() || '—'}</span></Field>
+        <Field label={t('上游 Request ID')}><span className='select-all break-all font-mono text-[11.5px]'>{String(row.upstreamRequestId ?? '').trim() || '—'}</span></Field>
+        <Field label={t('下游 Request ID')}><span className='select-all break-all font-mono text-[11.5px]'>{String(row.downstreamRequestId ?? '').trim() || '—'}</span></Field>
         <Field label={t('状态')}><StatusCell row={row} /></Field>
         <Field label={t('耗时')}>
           {/* 进行中显示已用时：首响还没发生，不写假数字（与列表同款） */}

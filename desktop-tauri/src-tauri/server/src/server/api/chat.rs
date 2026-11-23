@@ -165,6 +165,7 @@ pub async fn chat_completions(
 
     // 原始请求的去重键已在模型改写前计算。
     let telemetry = Arc::new(RequestTelemetry::with_model_key(key_source.map(|Extension(source)| source)));
+    telemetry.note_downstream_request_id(&headers);
     telemetry.capture_prompt_request(&request_source, &client_model);
     // 「进行中」行：模型解析已成功、转发即将开始 —— 先插一条 status=0 的明细，
     // 让请求日志在响应还没跑完时就能看到这条请求（收尾时由 `record` 的 UPDATE

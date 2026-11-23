@@ -1612,6 +1612,7 @@ async fn attempt_queue(
         // ── 调试模式：响应头到手（必须在 consume response 之前）──────────
         // 状态码与响应头在这里定稿；响应体由后续的流 / 聚合函数逐段补进同一个
         // 采集器（见 `ForwardStream` / `aggregate_sse_completion`）。
+        ctx.telemetry.note_upstream_request_id(response.headers());
         if let Some(capture) = ctx.telemetry.capture() {
             capture.attach_response(response.status().as_u16(), response.headers());
         }

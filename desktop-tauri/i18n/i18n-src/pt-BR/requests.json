@@ -232,5 +232,8 @@
   "（账号：{account}）": "(conta: {account})",
   "，{n}毫秒后重试": ", retry em {n}ms",
   "，{n}秒后重试": ", retry em {n}s",
-  "请求 ID": "ID da requisição"
+  "请求 ID": "ID da requisição",
+  "上游 Request ID": "Request ID do upstream",
+  "下游 Request ID": "Request ID do downstream",
+  "上游": "Upstream"
 }

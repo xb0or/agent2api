@@ -219,6 +219,27 @@ impl LogPhase {
     }
 }
 
+/// 常见上游/下游请求追踪头，按优先级取第一个非空值，并保留头名。
+fn request_id_from(headers: &axum::http::HeaderMap) -> String {
+    const NAMES: [&str; 6] = [
+        "x-request-id",
+        "request-id",
+        "x-amzn-requestid",
+        "x-correlation-id",
+        "cf-ray",
+        "x-trace-id",
+    ];
+    for name in NAMES {
+        if let Some(value) = headers.get(name).and_then(|value| value.to_str().ok()) {
+            let value = value.trim();
+            if !value.is_empty() {
+                return format!("{name}: {value}");
+            }
+        }
+    }
+    String::new()
+}
+
 /// 记账点要的最终快照（一次性读走，避免读字段时逐次加锁）
 #[derive(Clone, Debug, Default)]
 pub struct TelemetrySnapshot {
@@ -272,6 +293,10 @@ pub struct TelemetrySnapshot {
     /// 与 `upstream_model` 分开：后者是「我们发出去的」，本字段是「上游说它
     /// 是谁」。只在响应转换 / 回写之前采集，空串 = 上游没给或响应前就失败。
     pub returned_model: String,
+    /// 下游（客户端 → 网关）带来的 x-request-id / cf-ray（含来源头名）。
+    pub downstream_request_id: String,
+    /// 上游响应头里的 x-request-id / cf-ray（含来源头名；有值时优先于下游）。
+    pub upstream_request_id: String,
     pub prompt_tokens: i64,
     pub completion_tokens: i64,
     pub total_tokens: i64,
@@ -940,6 +965,27 @@ impl RequestTelemetry {
         }
         let mut guard = self.lock();
         guard.returned_model = model.to_string();
+    }
+
+    /// 从入站请求头记录 x-request-id / cf-ray（首次为准）。
+    pub fn note_downstream_request_id(&self, headers: &axum::http::HeaderMap) {
+        let value = request_id_from(headers);
+        if value.is_empty() {
+            return;
+        }
+        let mut guard = self.lock();
+        if guard.downstream_request_id.is_empty() {
+            guard.downstream_request_id = value;
+        }
+    }
+
+    /// 从上游响应头记录 x-request-id / cf-ray（覆盖式，最后一次为准）。
+    pub fn note_upstream_request_id(&self, headers: &axum::http::HeaderMap) {
+        let value = request_id_from(headers);
+        if value.is_empty() {
+            return;
+        }
+        self.lock().upstream_request_id = value;
     }
 
     /// 记录「这一次尝试实际随请求发给上游的思考等级」（覆盖式，最后一次为准）。

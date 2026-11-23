@@ -13,6 +13,7 @@ export type RequestEntry = {
   id?: string; ts?: number; status?: number; error?: string | null
   provider?: string; providerLabel?: string; accountId?: string; accountName?: string
   model?: string; clientModel?: string; upstreamModel?: string; returnedModel?: string
+  downstreamRequestId?: string; upstreamRequestId?: string
   clientReasoning?: string; upstreamReasoning?: string
   durationMs?: number; firstResponseMs?: number | null
   promptTokens?: number; completionTokens?: number; totalTokens?: number; cacheReadTokens?: number
@@ -335,8 +336,18 @@ export function RequestCell({ entry, column, namesHidden }: { entry: RequestEntr
     }
 
     case 'id': {
-      const id = String(entry.id ?? '').trim()
-      return <span key={key} className={`${className} font-mono text-[11px]`} title={id || undefined}>{id ? `${id.slice(0, 12)}…` : '—'}</span>
+      const upstream = String(entry.upstreamRequestId ?? '').trim()
+      const downstream = String(entry.downstreamRequestId ?? '').trim()
+      const shorten = (value: string) => value.length > 22 ? `${value.slice(0, 22)}…` : value
+      if (!upstream && !downstream) {
+        return <span key={key} className={`${className} font-mono text-[11px]`}>—</span>
+      }
+      return (
+        <span key={key} className={`${className} flex flex-col gap-0.5 font-mono text-[10.5px]`}>
+          {upstream ? <span title={upstream}>⬆ {shorten(upstream)}</span> : null}
+          {downstream ? <span className='text-muted-foreground' title={downstream}>⬇ {shorten(downstream)}</span> : null}
+        </span>
+      )
     }
 
     case 'model': {

@@ -136,6 +136,12 @@ pub struct RequestEntry {
     /// 上游响应体里实际返回的模型名（诊断字段；空串 = 未采到 / 旧行）。
     #[serde(rename = "returnedModel", default)]
     pub returned_model: String,
+    /// 下游请求头里的 x-request-id / cf-ray（含来源头名）
+    #[serde(rename = "downstreamRequestId", default)]
+    pub downstream_request_id: String,
+    /// 上游响应头里的 x-request-id / cf-ray；展示时优先于下游
+    #[serde(rename = "upstreamRequestId", default)]
+    pub upstream_request_id: String,
     /// **下游请求体里**客户端显式指定的思考等级（如 `max`；空串 = 没指定，
     /// 或该行来自还没有此列的旧版本）。识别键与归一规则见
     /// `core::model_rules::reasoning::read_client_level`。
@@ -455,6 +461,10 @@ pub struct NewRequestEntry {
     pub upstream_model: String,
     /// 上游响应体里实际返回的模型名（空串 = 未采到 / 未记录）
     pub returned_model: String,
+    /// 下游请求头里的 x-request-id / cf-ray（含来源头名）
+    pub downstream_request_id: String,
+    /// 上游响应头里的 x-request-id / cf-ray（含来源头名）
+    pub upstream_request_id: String,
     /// 下游请求显式指定的思考等级（空串 = 没指定；见 `RequestEntry::client_reasoning`）
     pub client_reasoning: String,
     /// 实际随上游请求发出的思考等级（空串 = 没有等级随行；见
@@ -500,6 +510,8 @@ impl NewRequestEntry {
             client_model: String::new(),
             upstream_model: String::new(),
             returned_model: String::new(),
+            downstream_request_id: String::new(),
+            upstream_request_id: String::new(),
             client_reasoning: String::new(),
             upstream_reasoning: String::new(),
             id: String::new(),
@@ -602,6 +614,8 @@ impl NewRequestEntry {
             client_model: self.client_model.trim().to_string(),
             upstream_model: self.upstream_model.trim().to_string(),
             returned_model: self.returned_model.trim().to_string(),
+            downstream_request_id: self.downstream_request_id.trim().to_string(),
+            upstream_request_id: self.upstream_request_id.trim().to_string(),
             // 两个等级列同一口径：trim 后透传，空串 = 没有等级
             client_reasoning: self.client_reasoning.trim().to_string(),
             upstream_reasoning: self.upstream_reasoning.trim().to_string(),
@@ -969,4 +983,8 @@ pub(super) struct RequestListRow {
     pub client_user_agent: String,
     /// 上游响应体实际返回的模型名（诊断；空串 = 未采到 / 旧行）
     pub returned_model: String,
+    /// 下游请求头里的 x-request-id / cf-ray
+    pub downstream_request_id: String,
+    /// 上游响应头里的 x-request-id / cf-ray
+    pub upstream_request_id: String,
 }

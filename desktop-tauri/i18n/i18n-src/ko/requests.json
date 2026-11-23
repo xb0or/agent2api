@@ -232,5 +232,8 @@
   "（账号：{account}）": "(계정: {account})",
   "，{n}毫秒后重试": ", {n}밀리초 후 재시도",
   "，{n}秒后重试": ", {n}초 후 재시도",
-  "请求 ID": "요청 ID"
+  "请求 ID": "요청 ID",
+  "上游 Request ID": "업스트림 Request ID",
+  "下游 Request ID": "다운스트림 Request ID",
+  "上游": "업스트림"
 }
