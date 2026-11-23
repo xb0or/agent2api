@@ -1744,6 +1744,32 @@ pub fn set_timeouts(patch: TimeoutPatch) -> bool {
     })
 }
 
+// ─── 全局默认出站 User-Agent（egressUserAgent）───────────────
+
+/// 当前生效的出站 UA：配置值（去空白后合法）优先，否则出厂值 `undici`。
+///
+/// 不存进 `RuntimeConfig` 快照：它只有一个读者（构造 `reqwest::Client` 时），
+/// 每次建客户端读一次 `raw` 就够，省掉一个字段与一处同步维护点。
+/// 读完即用，字符串本来就要分配一份交给 reqwest。
+pub fn egress_user_agent() -> String {
+    with_raw(|raw| egress_user_agent_from(raw))
+        .unwrap_or_else(|| DEFAULT_EGRESS_USER_AGENT.to_string())
+}
+
+/// 写入出站 UA；空串 = 删除覆盖、回落出厂值。返回是否写盘成功。
+///
+/// 调用方（`api::egress_api::put_user_agent`）**必须先校验**：本函数按「已合法」
+/// 处理，只负责落库。下次建客户端时生效（缓存键含 UA，见 `core::egress`）。
+pub fn set_egress_user_agent(value: &str) -> bool {
+    let trimmed = value.trim();
+    let next = if trimmed.is_empty() {
+        Value::Null
+    } else {
+        Value::String(trimmed.to_string())
+    };
+    update_raw_field(KEY_EGRESS_USER_AGENT, next)
+}
+
 // ─── 排队等待（queueMaxWaits / queueWaitSeconds）──────────────
 
 /// 只取排队等待的两项（**不克隆整份 raw**）。

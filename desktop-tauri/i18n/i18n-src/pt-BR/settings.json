@@ -1382,5 +1382,16 @@
   "，替换前的数据已备份为 {name}": ", os dados pré-substituição foram backupados como {name}",
   "，自定义提供商新增 {added} 个、更新 {updated} 个": ", provedores personalizados: {added} adicionados, {updated} atualizados",
   "；开关关闭时词表不执行": "; as regras não são executadas quando o mascaramento está desativado",
-  "；网页管理面板已一并开放（浏览器打开同一地址）": "; o painel de administração web também está aberto (acesse pelo mesmo endereço no navegador)"
+  "；网页管理面板已一并开放（浏览器打开同一地址）": "; o painel de administração web também está aberto (acesse pelo mesmo endereço no navegador)",
+  "出站 User-Agent": "User-Agent de saída",
+  "自定义": "Personalizado",
+  "出厂值": "Valor de fábrica",
+  "未能读取出站 User-Agent 设置，请稍后重试": "Não foi possível ler a configuração de User-Agent de saída. Tente novamente mais tarde.",
+  "正在使用自定义 UA：{value}": "Usando UA personalizado: {value}",
+  "正在使用出厂值 {value}": "Usando o valor de fábrica {value}",
+  "出站 User-Agent 已刷新": "User-Agent de saída atualizado",
+  "✅ 出站 User-Agent 已保存": "✅ User-Agent de saída salvo",
+  "已恢复出厂值 undici": "Valor de fábrica undici restaurado",
+  "网关所有出站请求默认携带的 User-Agent（账号代理、直连、跟随系统代理三种出口都一样）。出厂值 undici 与 Node 版一致 —— 部分上游的计费 / 配置接口按 UA 判断「请求是否合法」，缺失或换了名字会被 403。只有在上游明确按 UA 区分客户端形态、而你需要冒充另一种客户端时才改它：填官方客户端那一整串原样值，不要只写产品名。留空并保存 = 恢复出厂值。请求级自己设置的 UA（Cline 伪装头、OpenCode 会话头等）优先于这里，不受影响。保存后下一次请求即生效，不用重启。": "O User-Agent que o gateway envia por padrão em toda requisição de saída (proxy da conta, direto e proxy do sistema). O valor de fábrica undici é igual ao da edição Node — alguns endpoints de cobrança/configuração do upstream usam o UA para decidir se a requisição é legítima e retornam 403 quando ele falta ou muda de nome. Altere apenas quando o upstream distingue explicitamente formas de cliente pelo UA e você precisa se passar por outro cliente: cole a string completa do cliente oficial, não apenas o nome do produto. Salvar vazio restaura o valor de fábrica. Um UA definido no nível da requisição (cabeçalhos falsos do Cline, cabeçalhos de sessão do OpenCode etc.) tem precedência e não é afetado. As mudanças valem na próxima requisição, sem reiniciar.",
+  "保存后下一次请求即生效，不用重启。空值 = 出厂值 undici；含换行等控制字符的值会被拒绝。": "Vale na próxima requisição, sem reiniciar. Vazio = valor de fábrica undici; valores com caracteres de controle, como quebras de linha, são rejeitados."
 }

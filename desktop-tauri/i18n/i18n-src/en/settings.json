@@ -1380,5 +1380,16 @@
   "，替换前的数据已备份为 {name}": ", the pre-replace data was backed up as {name}",
   "，自定义提供商新增 {added} 个、更新 {updated} 个": ", custom providers: {added} added, {updated} updated",
   "；开关关闭时词表不执行": "; rules do not run while masking is disabled",
-  "；网页管理面板已一并开放（浏览器打开同一地址）": "; the web admin panel is also open (open the same address in a browser)"
+  "；网页管理面板已一并开放（浏览器打开同一地址）": "; the web admin panel is also open (open the same address in a browser)",
+  "出站 User-Agent": "Outbound User-Agent",
+  "自定义": "Custom",
+  "出厂值": "Factory default",
+  "未能读取出站 User-Agent 设置，请稍后重试": "Could not read the outbound User-Agent setting. Try again later.",
+  "正在使用自定义 UA：{value}": "Using a custom UA: {value}",
+  "正在使用出厂值 {value}": "Using the factory value {value}",
+  "出站 User-Agent 已刷新": "Outbound User-Agent refreshed",
+  "✅ 出站 User-Agent 已保存": "✅ Outbound User-Agent saved",
+  "已恢复出厂值 undici": "Restored the factory value undici",
+  "网关所有出站请求默认携带的 User-Agent（账号代理、直连、跟随系统代理三种出口都一样）。出厂值 undici 与 Node 版一致 —— 部分上游的计费 / 配置接口按 UA 判断「请求是否合法」，缺失或换了名字会被 403。只有在上游明确按 UA 区分客户端形态、而你需要冒充另一种客户端时才改它：填官方客户端那一整串原样值，不要只写产品名。留空并保存 = 恢复出厂值。请求级自己设置的 UA（Cline 伪装头、OpenCode 会话头等）优先于这里，不受影响。保存后下一次请求即生效，不用重启。": "The User-Agent the gateway sends by default on every outbound request (account proxy, direct, and system-proxy egress alike). The factory value undici matches the Node edition — some upstream billing/config endpoints use the UA to decide whether a request is legitimate and return 403 when it is missing or renamed. Change it only when an upstream explicitly distinguishes client forms by UA and you need to pose as another client: paste the official client's full string verbatim, not just the product name. Saving an empty value restores the factory value. A UA set at the request level (Cline spoofed headers, OpenCode session headers, etc.) takes precedence and is unaffected. Changes take effect on the next request without a restart.",
+  "保存后下一次请求即生效，不用重启。空值 = 出厂值 undici；含换行等控制字符的值会被拒绝。": "Takes effect on the next request without a restart. Empty = the factory value undici; values containing control characters such as newlines are rejected."
 }

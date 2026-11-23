@@ -204,6 +204,9 @@ pub mod storage_api;
 pub mod timeouts_api;
 pub mod update;
 pub mod upgrade_api;
+// 全局默认出站 User-Agent（设置页「网关 → 出站 User-Agent」），
+// 见该文件模块头
+pub mod user_agent_api;
 // 活动套餐通道的人机验证令牌池（界面铸造 → 网关消费），见该文件模块头
 pub mod zcode_captcha;
 // 令牌池的**补货节奏**设置（目标 / 轮询间隔 / 单轮上限），见该文件模块头

@@ -93,5 +93,8 @@
   "鉴权方式": "Authentication method",
   "隐藏新输入的密钥": "Hide the newly entered key",
   "高级兼容": "Advanced compatibility",
-  "默认关闭": "Off by default"
+  "默认关闭": "Off by default",
+  "User-Agent（可选）": "User-Agent (optional)",
+  "留空使用全局默认 UA": "Leave empty to use the global default UA",
+  "只作用于这一家上游：填了就在转发时覆盖全局默认 UA。「自定义头」里若也写了 User-Agent，以那一条为准。": "Applies only to this upstream: when set, it overrides the global default UA while forwarding. If the custom headers also contain User-Agent, that one wins."
 }

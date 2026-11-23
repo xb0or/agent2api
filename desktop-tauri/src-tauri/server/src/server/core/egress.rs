@@ -43,20 +43,21 @@
 //! 是否还有在途请求持有该 Client 的 Arc 克隆（在途请求会正常跑完）。
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
-use crate::server::config::TimeoutSettings;
+use crate::server::config::{self, TimeoutSettings};
 use crate::server::core::proxies::ResolvedProxy;
 use crate::server::logging;
 
 pub(crate) mod managed;
 mod resolved_cache;
 
-/// 默认 User-Agent，**必须设置**。
+/// 默认 User-Agent，**必须设置**；取值与用户覆盖见
+/// `config::DEFAULT_EGRESS_USER_AGENT` / `config::egress_user_agent()`。
 ///
 /// ── 为什么这条不是「顺手加的」而是必需 ────────────────────────
 /// reqwest 默认**不发** User-Agent 头；undici（Node 版用的 fetch）默认发
@@ -71,7 +72,6 @@ mod resolved_cache;
 ///
 /// 客户端级默认头**不会覆盖**请求级头（reqwest 只在 HeaderMap 空缺时插入），
 /// 所以 banner 的 `whitelistHeaders` 里那个真正的 WorkBuddy UA 依然生效。
-pub(crate) const DEFAULT_USER_AGENT: &str = "undici";
 
 /// Client 缓存上限（对照 Node 版 MAX_DISPATCHERS）
 const MAX_CLIENTS: usize = 24;
@@ -131,11 +131,13 @@ fn cache_key(proxy: Option<&ResolvedProxy>, timeouts: &TimeoutSettings) -> Strin
                 proxy.port.map(|port| port.to_string()).unwrap_or_else(|| "?".to_string()), proxy.non_direct)
         }
     };
-    // 两项传输层超时进键：见上面的说明
+    // 两项传输层超时进键：见上面的说明；默认 UA 也进键（设置页一改，
+    // 下一次取用就命中新键并建新 Client，不必重启）
     format!(
-        "{egress}|c{}|r{}",
+        "{egress}|c{}|r{}|ua{}",
         timeouts.connect_ms(),
-        timeouts.read_timeout_backstop_ms()
+        timeouts.read_timeout_backstop_ms(),
+        config::egress_user_agent()
     )
 }
 
@@ -206,8 +208,9 @@ fn base_builder(timeouts: &TimeoutSettings) -> reqwest::ClientBuilder {
         // **没有**设总超时（.timeout()）—— 那会掐断 SSE 长连接。各阶段真正的
         // 判定在转发层自己的计时器上（见 egress 头部的旋钮映射与模块头）
         .read_timeout(Duration::from_millis(timeouts.read_timeout_backstop_ms()))
-        // 默认 UA（理由见 DEFAULT_USER_AGENT）：不设会被计费接口判为「请求不合法」
-        .user_agent(DEFAULT_USER_AGENT)
+        // 默认 UA（理由见模块头）：不设会被计费接口判为「请求不合法」。
+        // 取值逐次读配置 —— 只有一个读者，省掉一份快照与同步维护点。
+        .user_agent(config::egress_user_agent())
         .pool_idle_timeout(Some(Duration::from_secs(90)))
         .pool_max_idle_per_host(8)
 }
@@ -354,26 +357,41 @@ fn resolved_builder(
     Ok(builder)
 }
 
-/// 跟随系统代理的 Client（进程级缓存一份）。
+/// 跟随系统代理的 Client（进程级缓存一份，UA 改了换一份）。
 ///
 /// 与 `client_for` 不同**不进 LRU**：它没有「出口参数」这一维，进程内一份
 /// 即可。系统代理改了要重启网关才生效（reqwest 在 build 时探测一次）——
 /// 登录与 Antigravity 的请求都是低频操作，这个取舍不影响正确性。
+/// 默认 UA 是设置页可改的，所以缓存要带上建它时用的 UA：值变了就重建一份。
 pub fn client_for_system_proxy() -> Arc<reqwest::Client> {
-    static CLIENT: OnceLock<Arc<reqwest::Client>> = OnceLock::new();
-    CLIENT
-        .get_or_init(|| {
-            let timeouts = crate::server::config::timeout_settings();
-            Arc::new(build_system_proxy_client(&timeouts).unwrap_or_else(|error| {
-                // 这条与 client_for 的兜底同一取舍：构造失败只可能发生在
-                // TLS 后端初始化（几乎不可能），记一次日志即可。这里的兜底
-                // **保持「跟随系统代理」语义**（Client::new() 的 auto_sys_proxy
-                // 同样默认开启），只是少了自定义超时。
-                logging::log("[Upstream]", &format!("⚠️ {error}，系统代理出口回退默认客户端"));
-                reqwest::Client::new()
-            }))
-        })
-        .clone()
+    static CLIENT: Mutex<Option<(String, Arc<reqwest::Client>)>> = Mutex::new(None);
+    let user_agent = config::egress_user_agent();
+    {
+        let guard = match CLIENT.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        if let Some((cached, client)) = guard.as_ref() {
+            if *cached == user_agent {
+                return client.clone();
+            }
+        }
+    }
+    let timeouts = crate::server::config::timeout_settings();
+    let client = Arc::new(build_system_proxy_client(&timeouts).unwrap_or_else(|error| {
+        // 这条与 client_for 的兜底同一取舍：构造失败只可能发生在
+        // TLS 后端初始化（几乎不可能），记一次日志即可。这里的兜底
+        // **保持「跟随系统代理」语义**（Client::new() 的 auto_sys_proxy
+        // 同样默认开启），只是少了自定义超时。
+        logging::log("[Upstream]", &format!("⚠️ {error}，系统代理出口回退默认客户端"));
+        reqwest::Client::new()
+    }));
+    let mut guard = match CLIENT.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    *guard = Some((user_agent, client.clone()));
+    client
 }
 
 /// 取（或创建）某个出口对应的 Client；`proxy` 为 None 时是直连客户端。
@@ -396,7 +414,7 @@ pub fn client_for(proxy: Option<&ResolvedProxy>) -> Arc<reqwest::Client> {
         }
     };
     let proxy = transport.as_ref();
-    // 超时设置逐次取用（配置一改，下一次就命中新键并建新 Client，见 cache_key）
+    // 超时与默认 UA 逐次取用（配置一改，下一次就命中新键并建新 Client，见 cache_key）
     let timeouts = crate::server::config::timeout_settings();
     let key = cache_key(proxy, &timeouts);
     // ① 先查缓存（快速路径）

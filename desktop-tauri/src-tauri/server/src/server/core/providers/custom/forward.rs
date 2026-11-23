@@ -300,7 +300,7 @@ impl OutboundKind {
     }
 }
 
-/// 提供商记录上的 **per-provider 特判**（`urlSuffix` / `headers` /
+/// 提供商记录上的 **per-provider 特判**（`urlSuffix` / `headers` / `userAgent` /
 /// `anthropicToolType` / `clientEmulation`，形状见 `custom_providers` 的模块头）。
 ///
 /// 这些字段由预置目录在创建时写入（参考实现 9Router 每家适配器里的修正：
@@ -312,6 +312,8 @@ struct ProviderQuirks {
     url_suffix: String,
     /// 合并到默认头上的静态额外头（同名覆盖默认头）
     headers: Vec<(String, String)>,
+    /// 这一家专用的默认出站 UA（空 = 用全局设置）
+    user_agent: String,
     /// 发 anthropic 上游时给每个工具补 `type: "custom"`（MiniMax 拒绝无 type 工具）
     tool_type_custom: bool,
     /// 是否按 **OpenCode 官方 CLI 的形状**补齐出站请求（`clientEmulation`，
@@ -344,6 +346,12 @@ impl ProviderQuirks {
                 .unwrap_or("")
                 .to_string(),
             headers,
+            user_agent: provider
+                .get("userAgent")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .unwrap_or("")
+                .to_string(),
             tool_type_custom: provider
                 .get("anthropicToolType")
                 .and_then(Value::as_str)
@@ -362,7 +370,16 @@ impl ProviderQuirks {
     /// 把特判头按名合并进默认头：同名（ASCII 不区分大小写）的默认头被覆盖，
     /// 其余追加在后面。覆盖默认凭证头（Authorization / x-api-key）意味着换一种
     /// 鉴权方式 —— 那是记录持有者的选择，这里只负责如实执行。
+    ///
+    /// 顺序：先放这一家的 `userAgent`，再合 `headers` —— 于是手写的
+    /// `headers["User-Agent"]` 仍然压过专用 UA（后者只是一个更省事的入口）。
     fn apply_to(&self, headers: &mut Vec<(String, String)>) {
+        if !self.user_agent.is_empty() {
+            match headers.iter_mut().find(|(name, _)| name.eq_ignore_ascii_case("User-Agent")) {
+                Some(slot) => slot.1 = self.user_agent.clone(),
+                None => headers.push(("User-Agent".to_string(), self.user_agent.clone())),
+            }
+        }
         for (key, value) in &self.headers {
             match headers.iter_mut().find(|(name, _)| name.eq_ignore_ascii_case(key)) {
                 Some(slot) => slot.1 = value.clone(),

@@ -506,11 +506,15 @@ export type SharedWindow = {
   wbCustomProvidersUi?: {
     find?: (id: string) => Promise<{
       id: string; name?: string; protocol?: string; baseUrl?: string
+      /** 这一家专用的出站 UA（空 / 缺省 = 跟全局设置） */
+      userAgent?: string
       /** 客户端形态伪装（'' / 'opencode'）：账号设置弹窗的「提供商」段读它做初值 */
       clientEmulation?: string
     } | null | undefined>
     update?: (patch: {
       id: string; name: string; protocol: string; baseUrl: string; clientEmulation?: string
+      /** 这一家专用的出站 UA（空串 = 清除覆盖、跟全局设置） */
+      userAgent?: string
     }) => Promise<unknown>
     remove?: (id: string) => Promise<boolean>
   }

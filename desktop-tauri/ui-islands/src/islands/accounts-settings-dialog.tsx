@@ -71,6 +71,8 @@ export function AccountSettingsDialog({ id, onClose, initialAccount, routeContex
   const [providerBaseUrl, setProviderBaseUrl] = React.useState('')
   /** 客户端形态伪装草稿（'' = 不伪装；'opencode' = 按官方 CLI 形状补齐请求） */
   const [providerEmulation, setProviderEmulation] = React.useState('')
+  /** 这一家专用的出站 UA 草稿（'' = 跟全局设置） */
+  const [providerUserAgent, setProviderUserAgent] = React.useState('')
   /** 自定义账号的凭证草稿：新 Key（留空 = 不改，走「清除」按钮）与「无需鉴权」勾选 */
   const [apiKeyDraft, setApiKeyDraft] = React.useState('')
   const [noAuthDraft, setNoAuthDraft] = React.useState(account?.noAuth === true)
@@ -130,6 +132,7 @@ export function AccountSettingsDialog({ id, onClose, initialAccount, routeContex
       setProviderProtocol(found.protocol || 'chat_completions')
       setProviderBaseUrl(found.baseUrl || '')
       setProviderEmulation(typeof found.clientEmulation === 'string' ? found.clientEmulation : '')
+      setProviderUserAgent(typeof found.userAgent === 'string' ? found.userAgent : '')
     }).catch(() => { /* 目录不可用：退化成「不是自定义家」，不注入那一段 */ })
     return () => { alive = false }
   }, [id])
@@ -189,6 +192,7 @@ export function AccountSettingsDialog({ id, onClose, initialAccount, routeContex
     provider: Boolean(provider && (
       providerName.trim() !== (provider.name || '') || providerProtocol !== (provider.protocol || 'chat_completions')
       || providerBaseUrl.trim() !== (provider.baseUrl || '') || providerEmulation !== (provider.clientEmulation || '')
+      || providerUserAgent.trim() !== (provider.userAgent || '')
     )),
   }
   const dirtyCount = Object.values(dirtyPanes).filter(Boolean).length
@@ -360,7 +364,7 @@ export function AccountSettingsDialog({ id, onClose, initialAccount, routeContex
   }
 
   /** 读「提供商」那一段的改动：没这一段（内置家）或字段都没动 → null（不提交） */
-  function readProviderPatch(): { error: string } | { id: string; name: string; protocol: string; baseUrl: string; clientEmulation: string } | null {
+  function readProviderPatch(): { error: string } | { id: string; name: string; protocol: string; baseUrl: string; clientEmulation: string; userAgent: string } | null {
     if (!provider) return null
     const nextName = providerName.trim()
     const nextBase = providerBaseUrl.trim()
@@ -374,13 +378,16 @@ export function AccountSettingsDialog({ id, onClose, initialAccount, routeContex
       return { error: t('请填写有效的 HTTP 或 HTTPS 地址') }
     }
     const beforeEmulation = typeof provider.clientEmulation === 'string' ? provider.clientEmulation : ''
+    const beforeUserAgent = typeof provider.userAgent === 'string' ? provider.userAgent : ''
     if (
       provider.name === nextName && provider.protocol === providerProtocol
       && provider.baseUrl === nextBase && beforeEmulation === providerEmulation
+      && beforeUserAgent === providerUserAgent.trim()
     ) return null
     return {
       id: provider.id, name: nextName, protocol: providerProtocol,
       baseUrl: nextBase, clientEmulation: providerEmulation,
+      userAgent: providerUserAgent.trim(),
     }
   }
 
@@ -696,8 +703,10 @@ export function AccountSettingsDialog({ id, onClose, initialAccount, routeContex
                   {pane === 'provider' && provider ? <ProviderSection provider={provider} count={providerCount}
                     name={providerName} protocol={providerProtocol} baseUrl={providerBaseUrl}
                     accountBaseUrl={target.baseUrl || ''} emulation={providerEmulation}
+                    userAgent={providerUserAgent}
                     onName={setProviderName} onProtocol={setProviderProtocol} onBaseUrl={setProviderBaseUrl}
-                    onEmulation={setProviderEmulation} onClearAccountBaseUrl={() => void clearAccountBaseUrl()}
+                    onEmulation={setProviderEmulation} onUserAgent={setProviderUserAgent}
+                    onClearAccountBaseUrl={() => void clearAccountBaseUrl()}
                     disabled={interactionBusy} onRemove={() => void removeProvider()} onModels={() => void openModels()} /> : null}
                 </div>
               </div>

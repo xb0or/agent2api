@@ -14,6 +14,8 @@ export type ProviderSettings = {
   name?: string
   protocol?: string
   baseUrl?: string
+  /** 这一家专用的出站 UA（空 = 跟全局设置） */
+  userAgent?: string
   clientEmulation?: string
 }
 
@@ -127,8 +129,8 @@ export function CustomCredentialFields({ hasApiKey, noAuth, value, onValue, onTo
 /** 与后端 custom_providers::MAX_NAME_CHARS 一致。 */
 const MAX_PROVIDER_NAME_CHARS = 64
 
-export function ProviderSection({ provider, name, protocol, baseUrl, accountBaseUrl, count, emulation,
-  onName, onProtocol, onBaseUrl, onEmulation, onRemove, onModels, onClearAccountBaseUrl, disabled }: {
+export function ProviderSection({ provider, name, protocol, baseUrl, accountBaseUrl, count, emulation, userAgent,
+  onName, onProtocol, onBaseUrl, onEmulation, onUserAgent, onRemove, onModels, onClearAccountBaseUrl, disabled }: {
   provider: ProviderSettings
   name: string
   protocol: string
@@ -137,10 +139,13 @@ export function ProviderSection({ provider, name, protocol, baseUrl, accountBase
   accountBaseUrl: string
   count: number
   emulation: string
+  /** 这一家专用的出站 UA 草稿（空串 = 跟全局设置） */
+  userAgent: string
   onName: (next: string) => void
   onProtocol: (next: string) => void
   onBaseUrl: (next: string) => void
   onEmulation: (next: string) => void
+  onUserAgent: (next: string) => void
   onRemove: () => void
   onModels: () => void
   onClearAccountBaseUrl: () => void
@@ -216,6 +221,15 @@ export function ProviderSection({ provider, name, protocol, baseUrl, accountBase
           </div>
           <Switch id='account-provider-emulation' checked={emulation === 'opencode'} disabled={disabled}
             onCheckedChange={next => onEmulation(next ? 'opencode' : '')} />
+        </Field>
+        <Field className='acct-dlg-field'>
+          <FieldLabel htmlFor='account-provider-useragent'>{t('User-Agent（可选）')}</FieldLabel>
+          <Input id='account-provider-useragent' className='mono' value={userAgent} disabled={disabled}
+            spellCheck={false} placeholder={t('留空使用全局默认 UA')}
+            onChange={event => onUserAgent(event.currentTarget.value)} />
+          <FieldDescription>
+            {t('只作用于这一家上游：填了就在转发时覆盖全局默认 UA。「自定义头」里若也写了 User-Agent，以那一条为准。')}
+          </FieldDescription>
         </Field>
         <p className='detail acct-dlg-advanced-note'>{t('开启后会改写请求体，补齐会话头与占位工具；未填密钥时使用匿名凭证 public。')}</p>
       </CollapsibleContent>

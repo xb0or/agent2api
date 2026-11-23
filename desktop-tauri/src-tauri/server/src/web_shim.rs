@@ -2285,12 +2285,6 @@ pub fn shim_js() -> &'static str {
       return call('PUT', '/api/cline/headers', { overrides: overrides || {} });
     },
 
-    // 兼容尚未刷新的旧设置页；新界面使用通用提供商设置接口。
-    getZcodeVersion: function () { return call('GET', '/api/zcode/version'); },
-    saveZcodeVersion: function (version) {
-      return call('PUT', '/api/zcode/version', { version: version == null ? '' : String(version) });
-    },
-
     // ── 网关面跨域访问（/v1/*，默认关）──
     getCors: function () { return call('GET', '/api/cors'); },
     saveCors: function (enabled) {
@@ -2480,6 +2474,11 @@ pub fn shim_js() -> &'static str {
     // ── 上游请求超时（四项）──
     getTimeouts: function () { return call('GET', '/api/timeouts'); },
     saveTimeouts: function (patch) { return call('PUT', '/api/timeouts', patch); },
+    // ── 全局默认出站 User-Agent ──
+    // 空串 = 回落出厂值 undici；响应里带 defaultUserAgent 供界面提示。
+    // 与桌面桥（src/bridge.rs 的 getUserAgent / saveUserAgent）逐字同形。
+    getUserAgent: function () { return call('GET', '/api/user-agent'); },
+    saveUserAgent: function (userAgent) { return call('PUT', '/api/user-agent', { userAgent: userAgent }); },
     // ── 排队等待（次数 / 单次秒数）──
     getQueue: function () { return call('GET', '/api/queue'); },
     saveQueue: function (patch) { return call('PUT', '/api/queue', patch); },

@@ -309,6 +309,13 @@ pub fn panel_router(state: ServerState) -> Router {
             "/api/timeouts",
             get(api::timeouts_api::get_timeouts).put(api::timeouts_api::put_timeouts),
         )
+        // 全局默认出站 User-Agent：GET 读、PUT 改（空串 = 回落出厂值 undici）。
+        // 与 /api/timeouts 同一模式：保存后下一次建出站客户端即生效，不用重启。
+        // 请求级 UA（伪装头等）仍然优先，见 api::user_agent_api 的模块头。
+        .route(
+            "/api/user-agent",
+            get(api::user_agent_api::get_user_agent).put(api::user_agent_api::put_user_agent),
+        )
         // 排队等待（次数 / 单次秒数）：走排队制的上游（目前是 Qoder 免费模型）
         // 在模型繁忙时回报「建议 N 秒后再来」，转发层据此退避重发几次。
         // 与 /api/timeouts 同一模式：保存后对下一个请求立即生效。

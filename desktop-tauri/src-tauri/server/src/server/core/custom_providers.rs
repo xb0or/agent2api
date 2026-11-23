@@ -291,6 +291,8 @@ fn item_of(object: &Map<String, Value>) -> Value {
         "headers": headers_of(object.get("headers")),
         "anthropicToolType": tool_type_of(object.get("anthropicToolType")),
         "clientEmulation": client_emulation,
+        // 这一家专用的默认出站 UA（空 = 跟全局设置）；控制字符 / 超长按缺省丢弃
+        "userAgent": user_agent_of(object.get("userAgent")),
         // 余额查询方案：**读侧也会按 baseUrl 兜底识别**（存量记录没有这个键，
         // 见 BALANCE_SCHEMES 的说明），所以这里给的不是原始值而是归一结果
         "balanceScheme": balance_scheme_of_record(object),
@@ -476,6 +478,23 @@ fn client_emulation_of(value: Option<&Value>) -> String {
     } else {
         String::new()
     }
+}
+
+/// 读侧归一：这一家的出站 User-Agent（空 = 用全局默认 / 不发这一家的专用值）。
+///
+/// 与 `headers` 的读侧容错同一口径：坏值（非字符串 / 含控制字符 / 超长）按缺省
+/// 丢弃 —— 一个带换行的 UA 塞进请求头会让 reqwest 直接拒绝整个请求。
+fn user_agent_of(value: Option<&Value>) -> String {
+    value
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|text| {
+            !text.is_empty()
+                && text.chars().count() <= MAX_HEADER_VALUE_CHARS
+                && !text.chars().any(char::is_control)
+        })
+        .unwrap_or("")
+        .to_string()
 }
 
 /// 读取容错：`models` 数组 → 归一后的条目列表（非数组 / 坏条目一律丢弃）。
@@ -688,6 +707,8 @@ pub fn create(payload: &Value) -> Result<Value, String> {
         "headers": validate_headers(object.get("headers"))?,
         "anthropicToolType": validate_tool_type(object.get("anthropicToolType"))?,
         "clientEmulation": validate_client_emulation(object.get("clientEmulation"))?,
+        // 这一家专用的默认出站 UA（空 = 用全局设置）
+        "userAgent": validate_user_agent(object.get("userAgent"))?,
         // 余额查询方案（预置卡片提交，见 BALANCE_SCHEMES 的说明）
         "balanceScheme": validate_balance_scheme(object.get("balanceScheme"))?,
     });
@@ -765,6 +786,12 @@ pub fn update(id: &str, payload: &Value) -> Result<Value, String> {
         merged.insert(
             "clientEmulation".to_string(),
             Value::String(validate_client_emulation(Some(value))?),
+        );
+    }
+    if let Some(value) = object.get("userAgent") {
+        merged.insert(
+            "userAgent".to_string(),
+            Value::String(validate_user_agent(Some(value))?),
         );
     }
     // 余额查询方案：与上面同一 patch 语义（带键才动）。编辑弹窗不发它 ——
@@ -954,7 +981,8 @@ pub fn wire_model_for(provider_id: &str, requested_name: &str) -> (String, Optio
 /// `x-api-key: `，严格的上游会直接 401 —— 而这条路径以前根本走不到（空 key
 /// 的账号被 `first_custom_credential` 过滤掉了，见那个函数的说明）。
 /// **有意不套 `clientEmulation` 的伪装头**：`/models` 实测无需伪装即可 200，
-/// 多套一层只会让这条管理动作也跟着上游的形态校验一起坏掉。
+/// 多套一层只会让这条管理动作也跟着上游的形态校验一起坏掉。记录上的
+/// `userAgent` 例外 —— 它声明的是「这一家的客户端身份」，推理与拉清单一致。
 ///
 /// 响应解析：OpenAI 与 anthropic 的清单形态相同（`{data: [{id}]}`），
 /// 取每个条目的非空 `id`。**不落盘** —— 清单拉回来给前端确认后再调
@@ -1008,8 +1036,13 @@ pub async fn fetch_upstream_models(
             builder.header("Authorization", format!("Bearer {api_key}"))
         };
     }
+    // 账号 UA 优先；没有账号覆盖时用这一家的默认 UA。静态 `headers` 仍不套
+    // （见函数头：多了只会让这条管理动作跟着上游的形态校验一起坏）。
+    let account_user_agent = crate::server::core::user_agent::override_value(provider_id, &credential.user_agent);
+    let provider_user_agent = user_agent_of(provider.get("userAgent"));
+    let user_agent = if account_user_agent.is_empty() { provider_user_agent.as_str() } else { account_user_agent };
     let response = crate::server::core::user_agent::AccountRequest::with_user_agent(
-        builder, crate::server::core::user_agent::override_value(provider_id, &credential.user_agent),
+        builder, user_agent,
     ).send().await.map_err(|error| {
         format!("上游请求失败: {}", egress::describe_error_detail(&error))
     })?;
@@ -1456,6 +1489,28 @@ fn validate_client_emulation(value: Option<&Value>) -> Result<String, String> {
     Err(format!(
         "clientEmulation 只支持 \"{CLIENT_EMULATION_OPENCODE}\"（留空表示不伪装上游客户端）"
     ))
+}
+
+/// 这一家专用的出站 User-Agent：空 = 跟全局设置（转发侧不覆盖默认头）。
+///
+/// 与 `headers` 的值同一长度上限（[`MAX_HEADER_VALUE_CHARS`]）、同一拒绝项
+/// （控制字符）—— 它最终就是一个 HTTP 头值。允许空格（浏览器 UA 里全是空格），
+/// 只拒绝换行 / 制表符这类会拆坏头的东西。
+fn validate_user_agent(value: Option<&Value>) -> Result<String, String> {
+    let Some(value) = value else { return Ok(String::new()) };
+    let text = value.as_str().unwrap_or("").trim();
+    if text.is_empty() {
+        return Ok(String::new());
+    }
+    if text.chars().any(char::is_control) {
+        return Err("userAgent 不能包含换行或其他控制字符".to_string());
+    }
+    if text.chars().count() > MAX_HEADER_VALUE_CHARS {
+        return Err(format!(
+            "userAgent 最长 {MAX_HEADER_VALUE_CHARS} 个字符"
+        ));
+    }
+    Ok(text.to_string())
 }
 
 /// 余额查询方案：空 = 这一家不查余额（手工新建的家）；非空必须是六个合法值

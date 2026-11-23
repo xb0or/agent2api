@@ -72,6 +72,9 @@ import {
   refreshRetention,
   refreshStorage,
   refreshTimeouts,
+  refreshUserAgent,
+  removeProviderPrompt,
+  removeRetryCode,
   renderDebug,
   renderCors,
   renderPrompt,
@@ -94,6 +97,7 @@ import {
   saveDeveloperRoleCompat,
   saveReasoningCollapse,
   saveTimeoutField,
+  saveUserAgent,
   saveToggle,
   selectCategory,
   showCategory,
@@ -677,6 +681,73 @@ function TimeoutPane({ snap }: { snap: SettingsSnapshot }) {
 
 /* ─── 网关分类 ─────────────────────────────── */
 
+/** 全局默认出站 UA：一个输入框 + 恢复默认，改动下一次请求生效。 */
+function UserAgentPanel({ snap }: { snap: SettingsSnapshot }) {
+  const state = snap.userAgent
+  const [draft, setDraft] = React.useState(state.userAgent)
+  React.useEffect(() => { setDraft(state.userAgent) }, [state.userAgent])
+
+  const busy = snap.busy === 'userAgent'
+  const ready = state.status === 'ready'
+  const draftText = draft.trim()
+  const dirty = ready && draftText !== state.userAgent
+
+  return (
+    <Card render={<section />} className='panel'>
+      <PanelHead
+        title={t('出站 User-Agent')}
+        tip={TIPS.userAgent}
+        badge={state.status === 'ready'
+          ? <StatusBadge tone={state.custom ? 'ok' : 'idle'}>
+            {state.custom ? t('自定义') : t('出厂值')}
+          </StatusBadge>
+          : state.status === 'unavailable'
+            ? <StatusBadge tone='bad'>{t('不可用')}</StatusBadge>
+            : <StatusBadge tone='idle'>{t('检测中…')}</StatusBadge>}
+        actions={<RefreshButton id='btn-user-agent-refresh' onClick={() => void refreshUserAgent()} />}
+      />
+      <CardContent className='panel-body'>
+        <div className='retention-list'>
+          <div className='flex flex-wrap items-center gap-2'>
+            <Input
+              id='settings-user-agent'
+              className='min-w-[240px] flex-1 font-mono text-[13px]'
+              value={draft}
+              disabled={busy || !ready}
+              spellCheck={false}
+              placeholder={state.defaultUserAgent || 'undici'}
+              onChange={event => setDraft(event.target.value)}
+            />
+            <Button
+              variant='ghost'
+              disabled={busy || !ready || !state.custom}
+              onClick={() => void saveUserAgent('')}
+            >
+              {t('恢复默认')}
+            </Button>
+            <Button
+              disabled={busy || !ready || !dirty}
+              onClick={() => void saveUserAgent(draftText === state.defaultUserAgent ? '' : draftText)}
+            >
+              {t('保存')}
+            </Button>
+          </div>
+        </div>
+        <div className='settings-state'>
+          {state.status === 'loading'
+            ? STATES.appLoading
+            : state.status === 'unavailable'
+              ? t('未能读取出站 User-Agent 设置，请稍后重试')
+              : state.custom
+                ? t('正在使用自定义 UA：{value}', { value: state.userAgent })
+                : t('正在使用出厂值 {value}', { value: state.defaultUserAgent })}
+        </div>
+        <div className='hint retention-note'>{NOTES.userAgent}</div>
+      </CardContent>
+    </Card>
+  )
+}
+
 function GatewayPane({ snap, panels }: { snap: SettingsSnapshot; panels: Set<string> }) {
   return (
     <>
@@ -702,6 +773,8 @@ function GatewayPane({ snap, panels }: { snap: SettingsSnapshot; panels: Set<str
           <div className='hint retention-note'>{NOTES.queue}</div>
         </CardContent>
       </Card>
+
+      <UserAgentPanel snap={snap} />
 
       <Card render={<section />} className='panel'>
         <PanelHead

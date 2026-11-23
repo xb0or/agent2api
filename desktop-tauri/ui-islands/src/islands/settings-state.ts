@@ -85,6 +85,7 @@ export type BusyScope =
   | 'retry'
   | 'codes'
   | 'timeouts'
+  | 'userAgent'
   | 'queue'
   | 'imageCompress'
   | 'captchaPool'
@@ -187,6 +188,19 @@ export type ClineHeadersState = {
 export type CorsState = { status: LoadStatus; on: boolean }
 
 /**
+ * 全局默认出站 User-Agent（`/api/user-agent`）。
+ *
+ * `userAgent` 是**当前生效值**（后端已把空覆盖折算成出厂值），`custom`
+ * 表示用户改过 —— 界面据此区分「出厂值」与「已覆盖」，不必自己比较字面量。
+ */
+export type UserAgentState = {
+  status: LoadStatus
+  userAgent: string
+  defaultUserAgent: string
+  custom: boolean
+}
+
+/**
  * models.dev 模型元数据：开关 + 「这份数据是什么时候的、有多少条」。
  *
  * `source` 三档与后端同字面量（`builtin` / `cache` / `network`），文案映射在
@@ -286,6 +300,7 @@ export type SettingsSnapshot = {
   /** 「指定错误码直接换号」名单；retry.status 为 unavailable 时是 null */
   retryCodes: number[] | null
   timeouts: NumericState
+  userAgent: UserAgentState
   queue: NumericState
   /** 会话图片压缩：开关 + 三项参数（长边 / 质量 / 阈值） */
   imageCompress: ImageCompressState
@@ -419,6 +434,7 @@ const INITIAL: SettingsSnapshot = {
   retry: { status: 'loading', values: null },
   retryCodes: null,
   timeouts: { status: 'loading', values: null },
+  userAgent: { status: 'loading', userAgent: '', defaultUserAgent: 'undici', custom: false },
   queue: { status: 'loading', values: null },
   imageCompress: { status: 'loading', enabled: true, values: null },
   captchaPool: { status: 'loading', values: null },
@@ -1977,6 +1993,57 @@ export async function saveClineHeaders(overrides: Record<string, string>): Promi
   }
 }
 
+/* ─── 全局默认出站 User-Agent ─────────────────── */
+
+export function renderUserAgent(data?: unknown): void {
+  if (data === undefined) return
+  if (!data || typeof data !== 'object') {
+    publish({
+      userAgent: { status: 'unavailable', userAgent: '', defaultUserAgent: 'undici', custom: false },
+    })
+    return
+  }
+  const source = data as { userAgent?: unknown; defaultUserAgent?: unknown; custom?: unknown }
+  publish({
+    userAgent: {
+      status: 'ready',
+      userAgent: typeof source.userAgent === 'string' ? source.userAgent : '',
+      defaultUserAgent: typeof source.defaultUserAgent === 'string' ? source.defaultUserAgent : 'undici',
+      custom: source.custom === true,
+    },
+  })
+}
+
+async function loadUserAgent(): Promise<void> {
+  try {
+    renderUserAgent(await shared().workbuddyDesktop?.getUserAgent())
+  } catch (error) {
+    console.warn('读取出站 User-Agent 失败:', errorMessage(error))
+    renderUserAgent(null)
+  }
+}
+
+export async function refreshUserAgent(): Promise<void> {
+  await loadUserAgent()
+  toast(t('出站 User-Agent 已刷新'))
+}
+
+/** 保存出站 UA（空串 = 清空覆盖、回落出厂值 undici）。 */
+export async function saveUserAgent(userAgent: string): Promise<void> {
+  if (busyScope) { repaint(); return }
+  beginBusy('userAgent')
+  try {
+    const saved = await shared().workbuddyDesktop?.saveUserAgent(userAgent)
+    renderUserAgent(saved)
+    toast(userAgent.trim() ? t('✅ 出站 User-Agent 已保存') : t('已恢复出厂值 undici'))
+  } catch (error) {
+    toast(t('保存失败：{message}', { message: errorMessage(error) }), 'err')
+    await loadUserAgent() // 回滚到后端的真实值
+  } finally {
+    endBusy()
+  }
+}
+
 /* ─── 网关面跨域访问（/v1/* 的 CORS，默认关）── */
 
 export function renderCors(data?: unknown): void {
@@ -2661,6 +2728,7 @@ export async function load({ checkUpdate = false }: { checkUpdate?: boolean } = 
     loadLanExtras(),
     loadRetention(),
     loadTimeouts(),
+    loadUserAgent(),
     loadQueue(),
     loadImageCompress(),
     loadCaptchaPool(),

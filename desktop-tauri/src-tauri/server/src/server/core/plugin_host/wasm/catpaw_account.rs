@@ -194,7 +194,7 @@ pub(in crate::server::core::plugin_host::wasm) fn credentials(
         return Err(missing_user_agent());
     }
     let user_agent = match raw_ua.trim() {
-        "" => crate::server::core::egress::DEFAULT_USER_AGENT,
+        "" => crate::server::config::DEFAULT_EGRESS_USER_AGENT,
         value => value,
     };
     Ok(Credentials {

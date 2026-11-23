@@ -761,10 +761,6 @@ const BRIDGE_JS: &str = r#"
     getClineHeaders: () => call('GET', '/api/cline/headers'),
     saveClineHeaders: overrides => call('PUT', '/api/cline/headers', { overrides }),
 
-    // 兼容尚未刷新的旧设置页；新界面使用通用提供商设置接口。
-    getZcodeVersion: () => call('GET', '/api/zcode/version'),
-    saveZcodeVersion: version => call('PUT', '/api/zcode/version', { version }),
-
     // ── 网关面跨域访问（/v1/*，默认关）──
     // 与 web_shim.rs 的 getCors / saveCors 逐字同形：桌面壳走 Tauri IPC 到
     // /api/cors，网页端走同源 fetch，两边接口名与签名必须一致（界面代码零改动
@@ -920,6 +916,11 @@ const BRIDGE_JS: &str = r#"
     // 契约同 saveRetry：PUT 允许部分字段，返回生效后的全量值。
     getTimeouts: () => call('GET', '/api/timeouts'),
     saveTimeouts: patch => call('PUT', '/api/timeouts', patch),
+    // ── 全局默认出站 User-Agent（设置页「网关 → 出站 User-Agent」）──
+    // 空串 = 回落出厂值 undici。与 web_shim.rs 的同名方法逐字同形
+    // （漏一侧 = 那一侧的面板读不到值）。
+    getUserAgent: () => call('GET', '/api/user-agent'),
+    saveUserAgent: userAgent => call('PUT', '/api/user-agent', { userAgent }),
     // ── 排队等待（设置页「通用 → 排队等待」）──
     // 次数 / 单次秒数，存配置（/api/queue）。契约同 saveTimeouts。
     getQueue: () => call('GET', '/api/queue'),

@@ -748,6 +748,24 @@ pub struct RetryPatch {
     pub no_retry_codes: Option<Vec<u16>>,
 }
 
+// ─── 全局默认出站 User-Agent ──────────────────────────────────────
+
+/// 全局默认出站 UA 的键（config.json 键，设置页「网关 → 出站 User-Agent」）。
+///
+/// 出网客户端（`core::egress`）在构造 `reqwest::Client` 时统一带上它；
+/// 请求级显式设置的 `User-Agent` 仍然优先（reqwest 只在 HeaderMap 空缺时插入）。
+/// 空串 / 缺失 = 出厂值 [`DEFAULT_EGRESS_USER_AGENT`]。
+pub const KEY_EGRESS_USER_AGENT: &str = "egressUserAgent";
+
+/// 出厂 UA：与 Node 版（undici）完全一致。
+///
+/// 这个默认值不是随便挑的：部分上游的计费 / 配置接口按 UA 判「请求是否合法」，
+/// 不带或换了名字会得到 403。用户要伪造别的客户端形态时才需要改它。
+pub const DEFAULT_EGRESS_USER_AGENT: &str = "undici";
+
+/// 自定义 UA 的长度上限（字符）：常见浏览器 UA 约 120，512 足够容纳长串。
+pub const MAX_EGRESS_USER_AGENT_CHARS: usize = 512;
+
 // ─── 上游请求超时（四个阶段，对应 OmniProxy 的同名设置）──────────────
 
 /// 连接超时：建立上游 TCP/TLS 连接或代理隧道的最大等待时间（秒）

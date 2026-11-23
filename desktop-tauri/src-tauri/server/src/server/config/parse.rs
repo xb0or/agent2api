@@ -438,6 +438,27 @@ pub(super) fn queue_from(map: &Map<String, Value>) -> QueueSettings {
     }
 }
 
+// ─── 全局默认出站 User-Agent 的解析 ───────────────────────────────
+
+/// 由原始 JSON 取出出站 UA：去首尾空白；空串 / 非字符串 / 含控制字符 / 超长
+/// 一律回落 [`DEFAULT_EGRESS_USER_AGENT`]。
+///
+/// 与其它配置项同一口径（读侧回落、不报错）：手改库写坏一个 UA 不该让网关
+/// 起不来，也不该把一个带换行的值塞进请求头 —— reqwest 会拒绝这种头，
+/// 表现是所有出站请求一起失败。
+pub(super) fn egress_user_agent_from(map: &Map<String, Value>) -> String {
+    map.get(KEY_EGRESS_USER_AGENT)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|text| {
+            !text.is_empty()
+                && text.chars().count() <= MAX_EGRESS_USER_AGENT_CHARS
+                && !text.chars().any(char::is_control)
+        })
+        .unwrap_or(DEFAULT_EGRESS_USER_AGENT)
+        .to_string()
+}
+
 // ─── ZCode 验证码令牌池的解析（三项：目标 / 轮询间隔 / 单轮上限）──────
 
 /// 由原始 JSON 解析令牌池的三项（缺字段各自用默认值；越界回落默认）。
