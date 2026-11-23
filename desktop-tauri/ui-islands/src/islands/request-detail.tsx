@@ -433,7 +433,11 @@ function AttemptsTable({ row, loading }: { row: RequestRow; loading?: boolean })
   if (!details.length) return <>-</>
   const attempts = Number(row.attempts) || 1
   return (
-    <Table className='text-[11.5px]'>
+    <>
+      <div className='mb-2 text-muted-foreground'>
+        {t('请求 ID')} <span className='select-all font-mono text-[11px] text-foreground'>{String(row.id ?? '').trim() || '—'}</span>
+      </div>
+      <Table className='text-[11.5px]'>
       <TableHeader>
         <TableRow className={NO_HOVER}>
           {[t('轮次'), t('提供商'), t('账号'), t('结果'), t('体积'), t('内部重试'), t('提示')].map(label => (
@@ -495,6 +499,7 @@ function AttemptsTable({ row, loading }: { row: RequestRow; loading?: boolean })
         ) : null}
       </TableBody>
     </Table>
+    </>
   )
 }
 /**
@@ -533,6 +538,7 @@ export function RequestDetailPane({ row, loadingDetail = false }: { row: Request
     <Table className='text-[12.5px] text-subtle [&_tr:last-child>td]:border-b-0 [&_tr:last-child>th]:border-b-0'>
       <TableBody>
         <Field label={t('时间')}>{fmtTime(row.ts)}</Field>
+        <Field label={t('请求 ID')}><span className='select-all break-all font-mono text-[11.5px]'>{String(row.id ?? '').trim() || '—'}</span></Field>
         <Field label={t('状态')}><StatusCell row={row} /></Field>
         <Field label={t('耗时')}>
           {/* 进行中显示已用时：首响还没发生，不写假数字（与列表同款） */}

@@ -231,5 +231,6 @@
   "（请求仍在转发中）": "(a requisição ainda está sendo encaminhada)",
   "（账号：{account}）": "(conta: {account})",
   "，{n}毫秒后重试": ", retry em {n}ms",
-  "，{n}秒后重试": ", retry em {n}s"
+  "，{n}秒后重试": ", retry em {n}s",
+  "请求 ID": "ID da requisição"
 }

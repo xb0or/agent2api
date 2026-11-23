@@ -41,6 +41,7 @@ jobs:
   # 与 macOS / Windows 同一份 Tauri 工程，但 Linux 必须用
   # tauri.linux.conf.json 覆盖 targets（基础配置是 Windows 的 nsis）。
   linux-desktop:
+    if: ${{ false }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -95,6 +96,7 @@ jobs:
   # 走 Dockerfile 的 bundle 阶段，与镜像同源同工具链；包内根下的
   # agent2api-server 与 ui/ 是 selfupdate 的硬约定。
   linux-server:
+    if: ${{ false }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -231,7 +233,7 @@ jobs:
     needs: [linux-desktop, linux-server]
     # 手动补发时从 inputs.ref 取 tag 名（workflow_dispatch 运行在分支上，
     # github.ref 是 refs/heads/*）；tag 推送时走第二个条件。
-    if: startsWith(inputs.ref, 'v') || startsWith(github.ref, 'refs/tags/v')
+    if: ${{ false }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7

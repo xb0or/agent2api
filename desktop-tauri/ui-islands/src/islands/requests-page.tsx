@@ -109,6 +109,7 @@ const COLUMNS: Column[] = [
   { key: 'retry', label: t('重试'), sel: '.req-retry', track: '52px' },
   { key: 'status', label: t('状态'), sel: '.req-status', track: '96px' },
   { key: 'model', label: t('模型'), sel: '.req-model', track: 'minmax(0, 1.3fr)' },
+  { key: 'id', label: t('请求 ID'), sel: '.req-id', track: '120px' },
   { key: 'client', label: t('客户端'), sel: '.req-client', track: '110px' },
   { key: 'apiKey', label: t('API Key'), sel: '.req-api-key', track: '140px' },
   { key: 'dur', label: t('用时'), sel: '.req-dur', track: '96px', align: 'right' },
