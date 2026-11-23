@@ -728,6 +728,14 @@ function UserAgentPanel({ snap }: { snap: SettingsSnapshot }) {
       />
       <CardContent className='panel-body'>
         <div className='retention-list'>
+          <SwitchRow
+            id='settings-user-agent-passthrough'
+            label={t('透传客户端 User-Agent')}
+            tip={TIPS.userAgentPassthrough}
+            checked={state.passthrough}
+            disabled={busy || !ready}
+            onCheckedChange={next => void saveUserAgent(state.userAgent, next)}
+          />
           <div className='flex flex-wrap items-center gap-2'>
             <Input
               id='settings-user-agent'
@@ -741,13 +749,13 @@ function UserAgentPanel({ snap }: { snap: SettingsSnapshot }) {
             <Button
               variant='ghost'
               disabled={busy || !ready || !state.custom}
-              onClick={() => void saveUserAgent('')}
+              onClick={() => void saveUserAgent('', state.passthrough)}
             >
               {t('恢复默认')}
             </Button>
             <Button
               disabled={busy || !ready || !dirty}
-              onClick={() => void saveUserAgent(draftText === state.defaultUserAgent ? '' : draftText)}
+              onClick={() => void saveUserAgent(draftText === state.defaultUserAgent ? '' : draftText, state.passthrough)}
             >
               {t('保存')}
             </Button>

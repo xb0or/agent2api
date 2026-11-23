@@ -762,6 +762,12 @@ pub struct RetryPatch {
 /// 空串 / 缺失 = 出厂值 [`DEFAULT_EGRESS_USER_AGENT`]。
 pub const KEY_EGRESS_USER_AGENT: &str = "egressUserAgent";
 
+/// 是否把客户端请求里的 `User-Agent` 透传给上游（布尔，默认 false）。
+///
+/// 只填补「出站请求没有自己声明 UA」的位置：账号级 / 提供商级 / 请求级
+/// 显式 UA 仍然优先，本开关不会覆盖它们。
+pub const KEY_EGRESS_USER_AGENT_PASSTHROUGH: &str = "egressUserAgentPassthrough";
+
 /// 出厂 UA：通用浏览器标识。
 ///
 /// 这个默认值不是随便挑的：部分上游的计费 / 配置接口按 UA 判「请求是否合法」，

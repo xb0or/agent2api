@@ -1485,5 +1485,8 @@
   "保存后下一次请求即生效，不用重启。空值 = 出厂值 undici；含换行等控制字符的值会被拒绝。": "Takes effect on the next request without a restart. Empty = the factory value undici; values containing control characters such as newlines are rejected.",
   "网关所有出站请求默认携带的 User-Agent（账号代理、直连、跟随系统代理三种出口都一样）。出厂值为通用浏览器 UA —— 部分上游的计费 / 配置接口按 UA 判断「请求是否合法」，缺失或换了名字会被 403。只有在上游明确按 UA 区分客户端形态、而你需要冒充另一种客户端时才改它：填官方客户端那一整串原样值，不要只写产品名。留空并保存 = 恢复出厂值。请求级自己设置的 UA（Cline 伪装头、OpenCode 会话头等）优先于这里，不受影响。保存后下一次请求即生效，不用重启。": "The User-Agent the gateway sends by default on every outbound request (account proxy, direct, and system-proxy egress alike). The factory value is a generic browser UA — some upstream billing and config endpoints use the UA to decide whether a request is legitimate, and return 403 when it is missing or renamed. Change it only when an upstream explicitly distinguishes client forms by UA and you need to pose as another client: paste the official client's full string verbatim, not just the product name. Saving an empty value restores the factory value. A UA set at the request level (Cline spoofed headers, OpenCode session headers, etc.) takes precedence and is unaffected. Changes take effect on the next request without a restart.",
   "保存后下一次请求即生效，不用重启。空值 = 出厂值；含换行等控制字符的值会被拒绝。": "Takes effect on the next request without a restart. Empty = the factory value; values containing control characters such as newlines are rejected.",
-  "已恢复出厂值": "Restored the factory value"
+  "已恢复出厂值": "Restored the factory value",
+  "透传客户端 User-Agent": "Pass through client User-Agent",
+  "开启后，出站请求会优先带上客户端发来的 User-Agent；账号级 / 提供商级 / 请求级显式 UA 仍然优先，只有它们都没设置时才透传。关闭时使用上面的全局默认 UA。": "When enabled, outbound requests prefer the User-Agent sent by the client. Account-level, provider-level, and request-level explicit UAs still take precedence; passthrough only fills in when none of them is set. When disabled, the global default UA above is used.",
+  "✅ 出站 User-Agent 设置已保存": "Outbound User-Agent settings saved"
 }

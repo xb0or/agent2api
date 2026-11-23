@@ -65,10 +65,28 @@ pub(crate) fn task_value<'a>(provider: &str, value: &'a str) -> &'a str {
 
 tokio::task_local! {
     static CURRENT: String;
+    /// 当前入站请求自带的 `User-Agent`（由网关面中间件写入）。
+    static INBOUND: String;
 }
 
 pub(crate) async fn scope<F: Future>(value: &str, work: F) -> F::Output {
     CURRENT.scope(value.trim().to_string(), work).await
+}
+
+pub(crate) async fn scope_inbound<F: Future>(value: &str, work: F) -> F::Output {
+    INBOUND.scope(value.trim().to_string(), work).await
+}
+
+/// 需要透传给上游的客户端 UA：开关关闭或没有入站 UA 时返回空串。
+///
+/// 只作为「出站请求没有显式 UA」时的兜底，调用方必须先确认头里没有
+/// 同名项 —— 账号级 / 提供商级 / 请求级 UA 的优先级高于透传。
+pub(crate) fn passthrough_value() -> String {
+    if !crate::server::config::egress_user_agent_passthrough() {
+        return String::new();
+    }
+    let value = INBOUND.try_with(Clone::clone).unwrap_or_default();
+    value.trim().chars().take(512).collect()
 }
 
 pub(crate) fn apply(headers: &mut Vec<(String, String)>, value: &str) {

@@ -1804,6 +1804,21 @@ pub fn set_egress_user_agent(value: &str) -> bool {
     update_raw_field(KEY_EGRESS_USER_AGENT, next)
 }
 
+/// 是否透传客户端请求的 UA（默认关）。每次转发时读一次，保存后立即生效。
+pub fn egress_user_agent_passthrough() -> bool {
+    with_raw(|raw| {
+        raw.get(KEY_EGRESS_USER_AGENT_PASSTHROUGH)
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+    })
+    .unwrap_or(false)
+}
+
+/// 写入 UA 透传开关。返回是否写盘成功（内存值已更新）。
+pub fn set_egress_user_agent_passthrough(enabled: bool) -> bool {
+    update_raw_field(KEY_EGRESS_USER_AGENT_PASSTHROUGH, Value::Bool(enabled))
+}
+
 // ─── 排队等待（queueMaxWaits / queueWaitSeconds）──────────────
 
 /// 只取排队等待的两项（**不克隆整份 raw**）。

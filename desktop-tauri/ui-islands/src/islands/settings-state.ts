@@ -198,6 +198,8 @@ export type UserAgentState = {
   userAgent: string
   defaultUserAgent: string
   custom: boolean
+  /** 是否把客户端请求的 UA 透传给上游（默认关） */
+  passthrough: boolean
 }
 
 /**
@@ -434,7 +436,7 @@ const INITIAL: SettingsSnapshot = {
   retry: { status: 'loading', values: null },
   retryCodes: null,
   timeouts: { status: 'loading', values: null },
-  userAgent: { status: 'loading', userAgent: '', defaultUserAgent: '', custom: false },
+  userAgent: { status: 'loading', userAgent: '', defaultUserAgent: '', custom: false, passthrough: false },
   queue: { status: 'loading', values: null },
   imageCompress: { status: 'loading', enabled: true, values: null },
   captchaPool: { status: 'loading', values: null },
@@ -1999,17 +2001,18 @@ export function renderUserAgent(data?: unknown): void {
   if (data === undefined) return
   if (!data || typeof data !== 'object') {
     publish({
-      userAgent: { status: 'unavailable', userAgent: '', defaultUserAgent: '', custom: false },
+      userAgent: { status: 'unavailable', userAgent: '', defaultUserAgent: '', custom: false, passthrough: false },
     })
     return
   }
-  const source = data as { userAgent?: unknown; defaultUserAgent?: unknown; custom?: unknown }
+  const source = data as { userAgent?: unknown; defaultUserAgent?: unknown; custom?: unknown; passthrough?: unknown }
   publish({
     userAgent: {
       status: 'ready',
       userAgent: typeof source.userAgent === 'string' ? source.userAgent : '',
       defaultUserAgent: typeof source.defaultUserAgent === 'string' ? source.defaultUserAgent : '',
       custom: source.custom === true,
+      passthrough: source.passthrough === true,
     },
   })
 }
@@ -2028,14 +2031,14 @@ export async function refreshUserAgent(): Promise<void> {
   toast(t('出站 User-Agent 已刷新'))
 }
 
-/** 保存出站 UA（空串 = 清空覆盖、回落出厂值）。 */
-export async function saveUserAgent(userAgent: string): Promise<void> {
+/** 保存出站 UA 与透传开关（空串 = 清空覆盖、回落出厂值）。 */
+export async function saveUserAgent(userAgent: string, passthrough: boolean): Promise<void> {
   if (busyScope) { repaint(); return }
   beginBusy('userAgent')
   try {
-    const saved = await shared().workbuddyDesktop?.saveUserAgent(userAgent)
+    const saved = await shared().workbuddyDesktop?.saveUserAgent(userAgent, passthrough)
     renderUserAgent(saved)
-    toast(userAgent.trim() ? t('✅ 出站 User-Agent 已保存') : t('已恢复出厂值'))
+    toast(t('✅ 出站 User-Agent 设置已保存'))
   } catch (error) {
     toast(t('保存失败：{message}', { message: errorMessage(error) }), 'err')
     await loadUserAgent() // 回滚到后端的真实值

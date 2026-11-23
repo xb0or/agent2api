@@ -6,9 +6,9 @@
 //! `config::DEFAULT_EGRESS_USER_AGENT` / `core::egress` 文件头的实测记录）。
 //! 用户想伪装成别的客户端形态时在这里改。
 //!
-//! 优先级：**请求级 `User-Agent` 头 > 本设置 > 出厂值**。reqwest 的客户端级
-//! `user_agent` 只在 HeaderMap 空缺时插入，所以各适配器自己设置的 UA
-//! （Cline 伪装头、OpenCode 会话头等）不受影响。
+//! 优先级：**请求级 `User-Agent` 头 > 账号级 / 提供商级 UA > 透传开关 >
+//! 本设置 > 出厂值**。reqwest 的客户端级 `user_agent` 只在 HeaderMap 空缺时
+//! 插入，所以各适配器自己设置的 UA（Cline 伪装头、OpenCode 会话头等）不受影响。
 //!
 //! ── 生效时机 ────────────────────────────────────────────────
 //! 保存后**下一次建客户端**即生效：缓存键里含 UA（见 `core::egress::cache_key`），
@@ -24,7 +24,8 @@ use axum::response::Response;
 use serde_json::{json, Value};
 
 use crate::server::config::{
-    self, DEFAULT_EGRESS_USER_AGENT, KEY_EGRESS_USER_AGENT, MAX_EGRESS_USER_AGENT_CHARS,
+    self, DEFAULT_EGRESS_USER_AGENT, KEY_EGRESS_USER_AGENT,
+    KEY_EGRESS_USER_AGENT_PASSTHROUGH, MAX_EGRESS_USER_AGENT_CHARS,
 };
 use crate::server::errors;
 use crate::server::http::{ok_json, parse_body};
@@ -38,8 +39,9 @@ pub async fn get_user_agent(State(_state): State<ServerState>) -> Response {
     ok_json(user_agent_json())
 }
 
-/// PUT /api/user-agent —— body `{"userAgent": "..."}`（空串 = 回落出厂值）。
+/// PUT /api/user-agent —— body `{"userAgent": "...", "passthrough": true}`。
 ///
+/// 两个键都是可选的，但至少要有一个；`userAgent` 空串 = 回落出厂值。
 /// 返回生效后的全量值（与 /api/timeouts 同一契约：前端直接用响应刷新界面）。
 pub async fn put_user_agent(State(_state): State<ServerState>, body: Bytes) -> Response {
     let payload = match parse_body(&body) {
@@ -49,32 +51,74 @@ pub async fn put_user_agent(State(_state): State<ServerState>, body: Bytes) -> R
     let Some(object) = payload.as_object() else {
         return errors::management_error(400, "请求体必须是 JSON 对象");
     };
-    let Some(raw) = object.get(KEY_EGRESS_USER_AGENT) else {
-        return errors::management_error(400, format!("缺少 {KEY_EGRESS_USER_AGENT}"));
-    };
-    let Some(text) = raw.as_str() else {
-        return errors::management_error(400, format!("{KEY_EGRESS_USER_AGENT} 必须是字符串"));
-    };
-    let trimmed = text.trim();
-    if let Err(message) = validated(trimmed) {
-        return errors::management_error(400, message);
+    let has_user_agent = object.contains_key(KEY_EGRESS_USER_AGENT);
+    let has_passthrough = object.contains_key(KEY_EGRESS_USER_AGENT_PASSTHROUGH);
+    if !has_user_agent && !has_passthrough {
+        return errors::management_error(
+            400,
+            format!(
+                "缺少 {KEY_EGRESS_USER_AGENT} 或 {KEY_EGRESS_USER_AGENT_PASSTHROUGH}"
+            ),
+        );
     }
-    if !config::set_egress_user_agent(trimmed) {
-        // 与超时设置同一处理：内存里的 raw 已更新（本次运行生效），但要如实告知
-        // 「重启后会回去」，否则会被当成玄学
-        logging::log("[Config]", "⚠️  出站 User-Agent 写入失败，本次运行内仍生效");
+
+    let next_user_agent = if has_user_agent {
+        let Some(text) = object.get(KEY_EGRESS_USER_AGENT).and_then(Value::as_str) else {
+            return errors::management_error(
+                400,
+                format!("{KEY_EGRESS_USER_AGENT} 必须是字符串"),
+            );
+        };
+        let trimmed = text.trim();
+        if let Err(message) = validated(trimmed) {
+            return errors::management_error(400, message);
+        }
+        Some(trimmed.to_string())
+    } else {
+        None
+    };
+    let next_passthrough = if has_passthrough {
+        let Some(enabled) = object
+            .get(KEY_EGRESS_USER_AGENT_PASSTHROUGH)
+            .and_then(Value::as_bool)
+        else {
+            return errors::management_error(
+                400,
+                format!("{KEY_EGRESS_USER_AGENT_PASSTHROUGH} 必须是布尔值"),
+            );
+        };
+        Some(enabled)
+    } else {
+        None
+    };
+
+    if let Some(value) = &next_user_agent {
+        if !config::set_egress_user_agent(value) {
+            // 与超时设置同一处理：内存里的 raw 已更新（本次运行生效），但要如实告知
+            // 「重启后会回去」，否则会被当成玄学
+            logging::log("[Config]", "⚠️  出站 User-Agent 写入失败，本次运行内仍生效");
+        }
+        logging::log(
+            "[Config]",
+            &format!(
+                "出站 User-Agent 设为 {}",
+                if value.is_empty() {
+                    format!("出厂值 {DEFAULT_EGRESS_USER_AGENT}")
+                } else {
+                    value.clone()
+                }
+            ),
+        );
     }
-    logging::log(
-        "[Config]",
-        &format!(
-            "出站 User-Agent 设为 {}",
-            if trimmed.is_empty() {
-                format!("出厂值 {DEFAULT_EGRESS_USER_AGENT}")
-            } else {
-                trimmed.to_string()
-            }
-        ),
-    );
+    if let Some(enabled) = next_passthrough {
+        if !config::set_egress_user_agent_passthrough(enabled) {
+            logging::log("[Config]", "⚠️  UA 透传开关写入失败，本次运行内仍生效");
+        }
+        logging::log(
+            "[Config]",
+            &format!("客户端 UA 透传{}", if enabled { "已开启" } else { "已关闭" }),
+        );
+    }
     ok_json(user_agent_json())
 }
 
@@ -84,6 +128,7 @@ fn user_agent_json() -> Value {
         "userAgent": user_agent,
         "defaultUserAgent": DEFAULT_EGRESS_USER_AGENT,
         "custom": user_agent != DEFAULT_EGRESS_USER_AGENT,
+        "passthrough": config::egress_user_agent_passthrough(),
     })
 }
 

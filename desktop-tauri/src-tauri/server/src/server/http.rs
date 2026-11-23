@@ -1092,6 +1092,9 @@ pub fn gateway_router(state: ServerState) -> Router {
         .layer(middleware::from_fn(require_api_key))
         .with_state(state);
     health.merge(open.merge(guarded))
+        // 把客户端 UA 写进 task-local，供转发层按需透传（见 core::user_agent）。
+        // 必须包住整个网关面：三条协议入口与图片入口都在这里。
+        .layer(middleware::from_fn(capture_inbound_user_agent))
         // CORS 挂在最外层：预检、404 与错误响应都要带上 CORS 头（同面板路由的口径）。
         // 只在设置里打开「网关跨域访问」后生效 —— 见 cors_gateway 的说明。
         // /health 自己那层无条件 CORS 在内侧，不受这个开关影响（见上面的说明）。
@@ -1145,6 +1148,21 @@ async fn cors(request: Request, next: Next) -> Response {
     let mut response = next.run(request).await;
     attach_cors(response.headers_mut());
     response
+}
+
+/// 网关面中间件：记录入站 `User-Agent`，供出站透传读取。
+///
+/// 只写 task-local，不做任何判断；开关与优先级都在转发层
+/// （`core::user_agent::passthrough_value`）。WebSocket 入口同样经过
+/// 这一层，握手头里的 UA 对同一连接内的后续转发可见。
+async fn capture_inbound_user_agent(request: Request, next: Next) -> Response {
+    let value = request
+        .headers()
+        .get(header::USER_AGENT)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    crate::server::core::user_agent::scope_inbound(&value, next.run(request)).await
 }
 
 /// 网关面（`/v1/*`）的 CORS 中间件：只有设置页把「网关跨域访问」打开后才生效。

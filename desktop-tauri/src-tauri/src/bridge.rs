@@ -921,10 +921,10 @@ const BRIDGE_JS: &str = r#"
     getTimeouts: () => call('GET', '/api/timeouts'),
     saveTimeouts: patch => call('PUT', '/api/timeouts', patch),
     // ── 全局默认出站 User-Agent（设置页「网关 → 出站 User-Agent」）──
-    // 空串 = 回落出厂值 undici。与 web_shim.rs 的同名方法逐字同形
+    // 空串 = 回落出厂值。与 web_shim.rs 的同名方法逐字同形
     // （漏一侧 = 那一侧的面板读不到值）。
     getUserAgent: () => call('GET', '/api/user-agent'),
-    saveUserAgent: userAgent => call('PUT', '/api/user-agent', { userAgent }),
+    saveUserAgent: (userAgent, passthrough) => call('PUT', '/api/user-agent', { userAgent, passthrough }),
     // ── 排队等待（设置页「通用 → 排队等待」）──
     // 次数 / 单次秒数，存配置（/api/queue）。契约同 saveTimeouts。
     getQueue: () => call('GET', '/api/queue'),

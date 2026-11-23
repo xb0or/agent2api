@@ -195,6 +195,18 @@ pub(super) async fn send_chat_with_client(
         }
         builder = builder.header(key, value);
     }
+    // UA 透传：只在出站头里没有 User-Agent 时补 —— 账号级 / 提供商级 /
+    // 请求级的显式 UA 已经在 plan.headers 里，优先级高于透传。
+    if !plan
+        .headers
+        .iter()
+        .any(|(key, _)| key.eq_ignore_ascii_case("user-agent"))
+    {
+        let passthrough = crate::server::core::user_agent::passthrough_value();
+        if !passthrough.is_empty() {
+            builder = builder.header("User-Agent", passthrough);
+        }
+    }
     if let Some(timeout) = NO_TOTAL_TIMEOUT {
         builder = builder.timeout(Duration::from_millis(timeout));
     }

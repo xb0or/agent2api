@@ -2484,10 +2484,10 @@ pub fn shim_js() -> &'static str {
     getTimeouts: function () { return call('GET', '/api/timeouts'); },
     saveTimeouts: function (patch) { return call('PUT', '/api/timeouts', patch); },
     // ── 全局默认出站 User-Agent ──
-    // 空串 = 回落出厂值 undici；响应里带 defaultUserAgent 供界面提示。
+    // 空串 = 回落出厂值；响应里带 defaultUserAgent 供界面提示。
     // 与桌面桥（src/bridge.rs 的 getUserAgent / saveUserAgent）逐字同形。
     getUserAgent: function () { return call('GET', '/api/user-agent'); },
-    saveUserAgent: function (userAgent) { return call('PUT', '/api/user-agent', { userAgent: userAgent }); },
+    saveUserAgent: function (userAgent, passthrough) { return call('PUT', '/api/user-agent', { userAgent: userAgent, passthrough: passthrough === true }); },
     // ── 排队等待（次数 / 单次秒数）──
     getQueue: function () { return call('GET', '/api/queue'); },
     saveQueue: function (patch) { return call('PUT', '/api/queue', patch); },
