@@ -551,6 +551,7 @@ export function RequestDetailPane({ row, loadingDetail = false }: { row: Request
         <Field label='API Key'>{requestApiKeyLabel(row, t)}</Field>
         <Field label={t('来源客户端')}><ClientIdentificationDetail entry={row} api={clientIdentificationApi} t={t} /></Field>
         <Field label={t('模型')}><ModelCell row={row} /></Field>
+        <Field label={t('上游响应模型')}>{String(row.returnedModel ?? '').trim() || '—'}</Field>
         {visionDetail(row.route) ? <Field label={t('图片兼容')}><VisionRequestDetail route={row.route} t={t} /></Field> : null}
         <Field label={t('提供商')}>
           {providerName(row) || '—'}

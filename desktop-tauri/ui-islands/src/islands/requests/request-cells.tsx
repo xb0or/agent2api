@@ -12,7 +12,7 @@ export type RequestEntry = {
   rowId?: number
   id?: string; ts?: number; status?: number; error?: string | null
   provider?: string; providerLabel?: string; accountId?: string; accountName?: string
-  model?: string; clientModel?: string; upstreamModel?: string
+  model?: string; clientModel?: string; upstreamModel?: string; returnedModel?: string
   clientReasoning?: string; upstreamReasoning?: string
   durationMs?: number; firstResponseMs?: number | null
   promptTokens?: number; completionTokens?: number; totalTokens?: number; cacheReadTokens?: number
@@ -337,6 +337,7 @@ export function RequestCell({ entry, column, namesHidden }: { entry: RequestEntr
     case 'model': {
       const client = String(entry.clientModel ?? '').trim()
       const upstream = String(entry.upstreamModel ?? '').trim()
+      const returned = String(entry.returnedModel ?? '').trim()
       const shown = String(entry.model ?? '').trim()
       const clientLevel = String(entry.clientReasoning ?? '').trim()
       const upstreamLevel = String(entry.upstreamReasoning ?? '').trim()
@@ -344,7 +345,7 @@ export function RequestCell({ entry, column, namesHidden }: { entry: RequestEntr
       // 转发名与请求名一致（绝大多数请求）→ 单行；不一致（映射 / 备援改写发生过）→ 两行
       if (!client || !upstream || upstream.toLowerCase() === client.toLowerCase()) {
         const text = tag(shown, upstreamLevel || clientLevel)
-        return <span key={key} className={className} title={text}>{text || '—'}</span>
+        return <span key={key} className={returned ? `${className} req-model-split` : className} title={returned ? `${text} / ${t('响应 {model}', { model: returned })}` : text}>{text || '—'}{returned ? <span className='req-model-line sub'>{t('响应 {model}', { model: returned })}</span> : null}</span>
       }
       const upText = tag(upstream, upstreamLevel)
       const downText = tag(client, clientLevel)
@@ -354,6 +355,8 @@ export function RequestCell({ entry, column, namesHidden }: { entry: RequestEntr
             title={t('转发到上游的模型：{model}', { model: upText })}>⬆️ {upText}</span>
           <span className='req-model-line sub'
             title={t('下游请求的模型：{model}', { model: downText })}>⬇️ {downText}</span>
+          {returned ? <span className='req-model-line sub'
+            title={t('上游响应体实际声明的模型：{model}', { model: returned })}>{t('响应 {model}', { model: returned })}</span> : null}
         </span>
       )
     }

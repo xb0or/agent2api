@@ -1494,5 +1494,9 @@
   "响应 model 使用请求名": "Usar o nome solicitado como model da resposta",
   "开启后，响应体（含流式每一帧）里的 model 字段统一改写为客户端的请求名；关闭后保留上游实际返回的模型名。无论开关如何，上游实际返回值都会记录在请求日志的「响应模型」里，供排查模型映射与降级。默认开启，与既有行为一致。": "Quando ativado, o campo model das respostas (incluindo cada frame de streaming) é reescrito com o nome solicitado pelo cliente. Quando desativado, o nome retornado pelo upstream é mantido. Independentemente do switch, o valor real do upstream é registrado como \"modelo de resposta\" no log de requisições para diagnosticar mapeamento e fallback. Ativado por padrão, igual ao comportamento existente.",
   "响应 {model}": "Resposta {model}",
-  "上游响应体实际声明的模型：{model}": "Modelo realmente declarado pela resposta do upstream: {model}"
+  "上游响应体实际声明的模型：{model}": "Modelo realmente declarado pela resposta do upstream: {model}",
+  "响应模型": "Modelo da resposta",
+  "使用请求名": "Usar nome solicitado",
+  "保留上游名": "Manter nome do upstream",
+  "上游响应模型": "Modelo da resposta do upstream"
 }

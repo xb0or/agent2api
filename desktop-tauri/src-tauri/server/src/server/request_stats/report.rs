@@ -704,6 +704,7 @@ pub(super) fn list_entry_json(
     object.insert("providerLabel".into(), Value::String(provider_label(&row.provider)));
     object.insert("clientModel".into(), json!(row.client_model));
     object.insert("upstreamModel".into(), json!(row.upstream_model));
+    object.insert("returnedModel".into(), json!(row.returned_model));
     object.insert("clientReasoning".into(), json!(row.client_reasoning));
     object.insert("upstreamReasoning".into(), json!(row.upstream_reasoning));
     object.insert("phase".into(), json!(row.phase));

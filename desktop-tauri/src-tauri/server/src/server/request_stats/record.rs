@@ -967,4 +967,6 @@ pub(super) struct RequestListRow {
     pub has_client_evidence: bool,
     pub recorded_client_name: String,
     pub client_user_agent: String,
+    /// 上游响应体实际返回的模型名（诊断；空串 = 未采到 / 旧行）
+    pub returned_model: String,
 }

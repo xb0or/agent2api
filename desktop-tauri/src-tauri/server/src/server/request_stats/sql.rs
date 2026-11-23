@@ -105,7 +105,7 @@ pub(super) const REQUEST_LIST_SELECT: &str = "row_id, id, ts, model, account_id,
           THEN COALESCE(json_extract(client_evidence, '$.clientName'), '') ELSE '' END AS recorded_client_name, \
      CASE WHEN client_evidence <> '' AND client_evidence <> '{}' AND json_valid(client_evidence) \
           THEN COALESCE(json_extract(client_evidence, '$.userAgent'), '') ELSE '' END AS client_user_agent, \
-     cache_creation_tokens, cache_creation_1h_tokens, cost_usd";
+     cache_creation_tokens, cache_creation_1h_tokens, cost_usd, returned_model";
 
 // `request_daily`（按天聚合）那一支的列常量、编解码与读-改-写语句在
 // `daily.rs` —— 两张表的语句分文件后各自独立演化。
@@ -229,6 +229,7 @@ pub(super) fn decode_request_list(row: &rusqlite::Row<'_>) -> rusqlite::Result<R
         cache_creation_tokens: row.get::<_, Option<i64>>(36)?.unwrap_or(0),
         cache_creation_1h_tokens: row.get::<_, Option<i64>>(37)?.unwrap_or(0),
         cost_usd: row.get(38)?,
+        returned_model: row.get(39)?,
     })
 }
 

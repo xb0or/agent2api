@@ -51,24 +51,27 @@ pub async fn put_user_agent(State(_state): State<ServerState>, body: Bytes) -> R
     let Some(object) = payload.as_object() else {
         return errors::management_error(400, "请求体必须是 JSON 对象");
     };
-    let has_user_agent = object.contains_key(KEY_EGRESS_USER_AGENT);
-    let has_passthrough = object.contains_key(KEY_EGRESS_USER_AGENT_PASSTHROUGH);
-    let has_response_model = object.contains_key(crate::server::config::KEY_RESPONSE_MODEL_ORIGINAL);
-    if !has_user_agent && !has_passthrough && !has_response_model {
+    let user_agent_value = aliased(object, "userAgent", KEY_EGRESS_USER_AGENT);
+    let passthrough_value = aliased(
+        object,
+        "passthrough",
+        KEY_EGRESS_USER_AGENT_PASSTHROUGH,
+    );
+    let response_model_value = aliased(
+        object,
+        "responseModelOriginal",
+        crate::server::config::KEY_RESPONSE_MODEL_ORIGINAL,
+    );
+    if user_agent_value.is_none() && passthrough_value.is_none() && response_model_value.is_none() {
         return errors::management_error(
             400,
-            format!(
-                "缺少 {KEY_EGRESS_USER_AGENT}、{KEY_EGRESS_USER_AGENT_PASSTHROUGH} 或 responseModelOriginalEnabled"
-            ),
+            "缺少 userAgent、passthrough 或 responseModelOriginal",
         );
     }
 
-    let next_user_agent = if has_user_agent {
-        let Some(text) = object.get(KEY_EGRESS_USER_AGENT).and_then(Value::as_str) else {
-            return errors::management_error(
-                400,
-                format!("{KEY_EGRESS_USER_AGENT} 必须是字符串"),
-            );
+    let next_user_agent = if let Some(value) = user_agent_value {
+        let Some(text) = value.as_str() else {
+            return errors::management_error(400, "userAgent 必须是字符串");
         };
         let trimmed = text.trim();
         if let Err(message) = validated(trimmed) {
@@ -78,15 +81,9 @@ pub async fn put_user_agent(State(_state): State<ServerState>, body: Bytes) -> R
     } else {
         None
     };
-    let next_passthrough = if has_passthrough {
-        let Some(enabled) = object
-            .get(KEY_EGRESS_USER_AGENT_PASSTHROUGH)
-            .and_then(Value::as_bool)
-        else {
-            return errors::management_error(
-                400,
-                format!("{KEY_EGRESS_USER_AGENT_PASSTHROUGH} 必须是布尔值"),
-            );
+    let next_passthrough = if let Some(value) = passthrough_value {
+        let Some(enabled) = value.as_bool() else {
+            return errors::management_error(400, "passthrough 必须是布尔值");
         };
         Some(enabled)
     } else {
@@ -120,12 +117,12 @@ pub async fn put_user_agent(State(_state): State<ServerState>, body: Bytes) -> R
             &format!("客户端 UA 透传{}", if enabled { "已开启" } else { "已关闭" }),
         );
     }
-    let response_model = match object.get(crate::server::config::KEY_RESPONSE_MODEL_ORIGINAL) {
+    let response_model = match response_model_value {
         None => None,
         Some(value) => match value.as_bool() {
             Some(enabled) => Some(enabled),
             None => {
-                return errors::management_error(400, "responseModelOriginalEnabled 必须是布尔值")
+                return errors::management_error(400, "responseModelOriginal 必须是布尔值")
             }
         },
     };
@@ -139,6 +136,17 @@ pub async fn put_user_agent(State(_state): State<ServerState>, body: Bytes) -> R
         );
     }
     ok_json(user_agent_json())
+}
+
+/// 同时接受界面契约键（`userAgent` / `passthrough` / `responseModelOriginal`）
+/// 与配置键（`egressUserAgent` 等）：桥与网页端一直发前者，手工调用配置 API
+/// 的人可能发后者，两种都必须生效。
+fn aliased<'a>(
+    object: &'a serde_json::Map<String, Value>,
+    ui_key: &str,
+    config_key: &str,
+) -> Option<&'a Value> {
+    object.get(ui_key).or_else(|| object.get(config_key))
 }
 
 fn user_agent_json() -> Value {
@@ -168,6 +176,53 @@ fn validated(text: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_ui_contract_keys_are_accepted() {
+        let body = json!({
+            "userAgent": "Mozilla/5.0",
+            "passthrough": true,
+            "responseModelOriginal": false,
+        });
+        let object = body.as_object().unwrap();
+        assert_eq!(
+            aliased(object, "userAgent", KEY_EGRESS_USER_AGENT)
+                .and_then(Value::as_str),
+            Some("Mozilla/5.0")
+        );
+        assert_eq!(
+            aliased(object, "passthrough", KEY_EGRESS_USER_AGENT_PASSTHROUGH)
+                .and_then(Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            aliased(
+                object,
+                "responseModelOriginal",
+                crate::server::config::KEY_RESPONSE_MODEL_ORIGINAL
+            )
+            .and_then(Value::as_bool),
+            Some(false)
+        );
+    }
+
+    #[test]
+    fn the_config_keys_stay_accepted() {
+        let body = json!({
+            "egressUserAgent": "curl/8",
+            "egressUserAgentPassthrough": false,
+            "responseModelOriginalEnabled": true,
+        });
+        let object = body.as_object().unwrap();
+        assert!(aliased(object, "userAgent", KEY_EGRESS_USER_AGENT).is_some());
+        assert!(aliased(object, "passthrough", KEY_EGRESS_USER_AGENT_PASSTHROUGH).is_some());
+        assert!(aliased(
+            object,
+            "responseModelOriginal",
+            crate::server::config::KEY_RESPONSE_MODEL_ORIGINAL
+        )
+        .is_some());
+    }
 
     #[test]
     fn an_empty_value_clears_the_override() {

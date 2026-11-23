@@ -701,6 +701,38 @@ function TimeoutPane({ snap }: { snap: SettingsSnapshot }) {
 
 /* ─── 网关分类 ─────────────────────────────── */
 
+/** 响应模型：是否把响应里的 model 回写为客户端请求名。 */
+function ResponseModelPanel({ snap }: { snap: SettingsSnapshot }) {
+  const state = snap.userAgent
+  const busy = snap.busy === 'userAgent'
+  const ready = state.status === 'ready'
+  return (
+    <Card render={<section />} className='panel'>
+      <PanelHead
+        title={t('响应模型')}
+        tip={TIPS.responseModelOriginal}
+        badge={state.status === 'ready'
+          ? <StatusBadge tone={state.responseModelOriginal ? 'ok' : 'idle'}>
+            {state.responseModelOriginal ? t('使用请求名') : t('保留上游名')}
+          </StatusBadge>
+          : <StatusBadge tone='idle'>{t('检测中…')}</StatusBadge>}
+      />
+      <CardContent className='panel-body'>
+        <div className='retention-list'>
+          <SwitchRow
+            id='settings-response-model-original'
+            label={t('响应 model 使用请求名')}
+            tip={TIPS.responseModelOriginal}
+            checked={state.responseModelOriginal}
+            disabled={busy || !ready}
+            onCheckedChange={next => void saveUserAgent(state.userAgent, state.passthrough, next)}
+          />
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
 /** 全局默认出站 UA：一个输入框 + 恢复默认，改动下一次请求生效。 */
 function UserAgentPanel({ snap }: { snap: SettingsSnapshot }) {
   const state = snap.userAgent
@@ -735,14 +767,6 @@ function UserAgentPanel({ snap }: { snap: SettingsSnapshot }) {
             checked={state.passthrough}
             disabled={busy || !ready}
             onCheckedChange={next => void saveUserAgent(state.userAgent, next, state.responseModelOriginal)}
-          />
-          <SwitchRow
-            id='settings-response-model-original'
-            label={t('响应 model 使用请求名')}
-            tip={TIPS.responseModelOriginal}
-            checked={state.responseModelOriginal}
-            disabled={busy || !ready}
-            onCheckedChange={next => void saveUserAgent(state.userAgent, state.passthrough, next)}
           />
           <div className='flex flex-wrap items-center gap-2'>
             <Input
@@ -811,6 +835,8 @@ function GatewayPane({ snap, panels }: { snap: SettingsSnapshot; panels: Set<str
       </Card>
 
       <UserAgentPanel snap={snap} />
+
+      <ResponseModelPanel snap={snap} />
 
       <Card render={<section />} className='panel'>
         <PanelHead
