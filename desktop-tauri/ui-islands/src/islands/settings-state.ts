@@ -434,7 +434,7 @@ const INITIAL: SettingsSnapshot = {
   retry: { status: 'loading', values: null },
   retryCodes: null,
   timeouts: { status: 'loading', values: null },
-  userAgent: { status: 'loading', userAgent: '', defaultUserAgent: 'undici', custom: false },
+  userAgent: { status: 'loading', userAgent: '', defaultUserAgent: '', custom: false },
   queue: { status: 'loading', values: null },
   imageCompress: { status: 'loading', enabled: true, values: null },
   captchaPool: { status: 'loading', values: null },
@@ -1999,7 +1999,7 @@ export function renderUserAgent(data?: unknown): void {
   if (data === undefined) return
   if (!data || typeof data !== 'object') {
     publish({
-      userAgent: { status: 'unavailable', userAgent: '', defaultUserAgent: 'undici', custom: false },
+      userAgent: { status: 'unavailable', userAgent: '', defaultUserAgent: '', custom: false },
     })
     return
   }
@@ -2008,7 +2008,7 @@ export function renderUserAgent(data?: unknown): void {
     userAgent: {
       status: 'ready',
       userAgent: typeof source.userAgent === 'string' ? source.userAgent : '',
-      defaultUserAgent: typeof source.defaultUserAgent === 'string' ? source.defaultUserAgent : 'undici',
+      defaultUserAgent: typeof source.defaultUserAgent === 'string' ? source.defaultUserAgent : '',
       custom: source.custom === true,
     },
   })
@@ -2028,14 +2028,14 @@ export async function refreshUserAgent(): Promise<void> {
   toast(t('出站 User-Agent 已刷新'))
 }
 
-/** 保存出站 UA（空串 = 清空覆盖、回落出厂值 undici）。 */
+/** 保存出站 UA（空串 = 清空覆盖、回落出厂值）。 */
 export async function saveUserAgent(userAgent: string): Promise<void> {
   if (busyScope) { repaint(); return }
   beginBusy('userAgent')
   try {
     const saved = await shared().workbuddyDesktop?.saveUserAgent(userAgent)
     renderUserAgent(saved)
-    toast(userAgent.trim() ? t('✅ 出站 User-Agent 已保存') : t('已恢复出厂值 undici'))
+    toast(userAgent.trim() ? t('✅ 出站 User-Agent 已保存') : t('已恢复出厂值'))
   } catch (error) {
     toast(t('保存失败：{message}', { message: errorMessage(error) }), 'err')
     await loadUserAgent() // 回滚到后端的真实值

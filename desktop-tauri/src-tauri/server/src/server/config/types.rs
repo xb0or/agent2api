@@ -491,8 +491,10 @@ pub const KEY_LOGS_AUTO_REFRESH: &str = "logsAutoRefresh";
 pub const KEY_REQUESTS_AUTO_REFRESH: &str = "requestsAutoRefresh";
 /// 报表页自动刷新在 `scheduledTasks` 下的子键（同上）
 pub const KEY_REPORT_AUTO_REFRESH: &str = "reportAutoRefresh";
-/// 软件版本检查在 `scheduledTasks` 下的子键（后端定时向 GitHub 查最新发布版本）
+/// 软件版本检查在 `scheduledTasks` 下的子键（后端定时向官网查最新发布版本）
 pub const KEY_UPDATE_CHECK: &str = "updateCheck";
+/// Magpie 插件清单与更新检查在 `scheduledTasks` 下的子键
+pub const KEY_MAGPIE_PLUGIN_CHECK: &str = "magpiePluginCheck";
 
 /// 凭证维护默认间隔（分钟）：与改造前的硬编码 600 秒一致
 pub const DEFAULT_CREDENTIAL_MAINTENANCE_MINUTES: i64 = 10;
@@ -502,14 +504,10 @@ pub const DEFAULT_CREDENTIAL_MAINTENANCE_MINUTES: i64 = 10;
 /// 上游（见 `providers::workbuddy` 的 `refresh_models`），间隔太密等于给上游
 /// 添无谓的负载。一小时的粒度对「模型清单变了没」这个问题足够。
 pub const DEFAULT_MODEL_REFRESH_MINUTES: i64 = 60;
-/// 两个前端自动刷新的默认间隔（秒）：每秒一次。
-///
-/// 比改造前的硬编码 10 秒密得多，这是有意的：两条任务都只在**对应页面可见时**
-/// 才请求（`document.hidden` 与当前页都判过），离开页面就完全静默，所以
-/// 「密」的代价只落在用户正盯着那一页的时候 —— 而那正是他想要实时的时刻。
-/// 两条接口都是本地读写（一条读日志库、一条查统计库），不出网。
-pub const DEFAULT_LOGS_AUTO_REFRESH_SECONDS: i64 = 1;
-pub const DEFAULT_REQUESTS_AUTO_REFRESH_SECONDS: i64 = 1;
+/// 两个前端自动刷新的默认间隔（秒）：放缓为 5 秒作为兜底/节流节拍；
+/// 日志与请求日志页优先由增量事件驱动按需刷新，空闲期不再每秒轮询数据库。
+pub const DEFAULT_LOGS_AUTO_REFRESH_SECONDS: i64 = 5;
+pub const DEFAULT_REQUESTS_AUTO_REFRESH_SECONDS: i64 = 5;
 pub const DEFAULT_REPORT_AUTO_REFRESH_SECONDS: i64 = 1;
 /// 软件版本检查默认间隔（分钟）：每 20 分钟查一次 GitHub 最新发布。
 ///
@@ -520,6 +518,8 @@ pub const DEFAULT_REPORT_AUTO_REFRESH_SECONDS: i64 = 1;
 /// `scheduledTasks.updateCheck.interval` 的配置按原值跑（`interval_field`
 /// 只在键缺失或越界时才回落到默认），所以调整它不会改写老用户的设置。
 pub const DEFAULT_UPDATE_CHECK_MINUTES: i64 = 240;
+/// Magpie 插件清单与更新检查默认间隔（分钟）：6 小时。
+pub const DEFAULT_MAGPIE_PLUGIN_CHECK_MINUTES: i64 = 360;
 
 /// 间隔型任务的取值范围。上下限分两套（分钟 / 秒），因为两类任务的合理区间
 /// 差着量级：后端维护任务按分钟（1 分钟～1 天），前端刷新按秒（1 秒～10 分钟）。
@@ -555,6 +555,7 @@ pub struct ScheduledSettings {
     pub requests_auto_refresh: IntervalTask,
     pub report_auto_refresh: IntervalTask,
     pub update_check: IntervalTask,
+    pub magpie_plugin_check: IntervalTask,
 }
 
 impl Default for ScheduledSettings {
@@ -583,6 +584,10 @@ impl Default for ScheduledSettings {
             update_check: IntervalTask {
                 enabled: true,
                 interval: DEFAULT_UPDATE_CHECK_MINUTES,
+            },
+            magpie_plugin_check: IntervalTask {
+                enabled: true,
+                interval: DEFAULT_MAGPIE_PLUGIN_CHECK_MINUTES,
             },
         }
     }
@@ -757,11 +762,13 @@ pub struct RetryPatch {
 /// 空串 / 缺失 = 出厂值 [`DEFAULT_EGRESS_USER_AGENT`]。
 pub const KEY_EGRESS_USER_AGENT: &str = "egressUserAgent";
 
-/// 出厂 UA：与 Node 版（undici）完全一致。
+/// 出厂 UA：通用浏览器标识。
 ///
 /// 这个默认值不是随便挑的：部分上游的计费 / 配置接口按 UA 判「请求是否合法」，
-/// 不带或换了名字会得到 403。用户要伪造别的客户端形态时才需要改它。
-pub const DEFAULT_EGRESS_USER_AGENT: &str = "undici";
+/// 不带或换了名字会得到 403；同时避免暴露脚本 HTTP 客户端标识。用户要伪造
+/// 别的客户端形态时才需要改它。
+pub const DEFAULT_EGRESS_USER_AGENT: &str =
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36";
 
 /// 自定义 UA 的长度上限（字符）：常见浏览器 UA 约 120，512 足够容纳长串。
 pub const MAX_EGRESS_USER_AGENT_CHARS: usize = 512;

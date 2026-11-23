@@ -59,19 +59,14 @@ mod resolved_cache;
 /// 默认 User-Agent，**必须设置**；取值与用户覆盖见
 /// `config::DEFAULT_EGRESS_USER_AGENT` / `config::egress_user_agent()`。
 ///
-/// ── 为什么这条不是「顺手加的」而是必需 ────────────────────────
-/// reqwest 默认**不发** User-Agent 头；undici（Node 版用的 fetch）默认发
-/// `undici`。实测（2026-09）计费接口在缺失 User-Agent 时直接返回
+/// reqwest 默认**不发** User-Agent 头。实测（2026-09）计费接口在缺失 User-Agent 时直接返回
 /// `HTTP 403 {"code":10085,"msg":"请求不合法，如有疑问请联系客服"}`，
 /// 带上任意非空 UA 就正常返回 `code:0`。
 ///
-/// 换句话说：不设这个头，Rust 版会在「Node 版跑得通」的同一账号上稳定复现 403。
-/// 这里取 `undici` 与 Node 版完全一致 —— 上游看到的就是同一个 UA，
-/// 不做「顺手改成 WorkBuddy 客户端 UA」这种会改变上游风控判定的改动
-/// （计费链路 Node 版本来就不带客户端 UA，只有 banner 的白名单头带）。
-///
 /// 客户端级默认头**不会覆盖**请求级头（reqwest 只在 HeaderMap 空缺时插入），
-/// 所以 banner 的 `whitelistHeaders` 里那个真正的 WorkBuddy UA 依然生效。
+/// 显式声明了专属客户端 UA 的提供商或账号自定义 UA 不受影响；未显式声明时
+/// 回退通用浏览器 UA，避免暴露脚本 HTTP 客户端标识（`undici`）。出厂值见
+/// `config::DEFAULT_EGRESS_USER_AGENT`，设置页可改。
 
 /// Client 缓存上限（对照 Node 版 MAX_DISPATCHERS）
 const MAX_CLIENTS: usize = 24;
