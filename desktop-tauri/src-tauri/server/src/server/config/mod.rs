@@ -1819,6 +1819,21 @@ pub fn set_egress_user_agent_passthrough(enabled: bool) -> bool {
     update_raw_field(KEY_EGRESS_USER_AGENT_PASSTHROUGH, Value::Bool(enabled))
 }
 
+/// 响应 model 是否回写为客户端请求名（默认开，保持既有行为）。
+pub fn response_model_original_enabled() -> bool {
+    with_raw(|raw| {
+        raw.get(KEY_RESPONSE_MODEL_ORIGINAL)
+            .and_then(Value::as_bool)
+            .unwrap_or(true)
+    })
+    .unwrap_or(true)
+}
+
+/// 写入响应 model 回写开关。返回是否写盘成功（内存值已更新）。
+pub fn set_response_model_original_enabled(enabled: bool) -> bool {
+    update_raw_field(KEY_RESPONSE_MODEL_ORIGINAL, Value::Bool(enabled))
+}
+
 // ─── 排队等待（queueMaxWaits / queueWaitSeconds）──────────────
 
 /// 只取排队等待的两项（**不克隆整份 raw**）。

@@ -360,6 +360,9 @@ impl ReasoningCoalescer {
             }
             if let Some(model) = chunk.get("model").filter(|value| is_truthy(value)) {
                 self.meta.model = Some(model.clone());
+                if let (Some(telemetry), Some(text)) = (&self.telemetry, model.as_str()) {
+                    telemetry.note_returned_model(text);
+                }
             }
             if let Some(created) = chunk.get("created").filter(|value| is_truthy(value)) {
                 self.meta.created = Some(created.clone());

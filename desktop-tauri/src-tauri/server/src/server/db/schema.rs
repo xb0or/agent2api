@@ -359,7 +359,7 @@ pub fn is_reserved(key: &str) -> bool {
 /// 请求日志新增「积分」列读它。与 token 四列刻意不同：这一列**可空 REAL** ——
 /// `NULL` = 这一家没上报（旧行 / 不提供该读数），0 = 确实零消耗；用 0 兜底会
 /// 把「没读到」画成「花了 0 积分」，比缺一列更难排查。
-pub const SCHEMA_VERSION: i64 = 32;
+pub const SCHEMA_VERSION: i64 = 33;
 
 /// 版本 1 的全部表与索引：改造前所有 JSON / JSONL 文件的对应形态。
 ///
@@ -1102,6 +1102,7 @@ fn apply_version(
         30 => conn.execute_batch(include_str!("schema_usage_diagnostics.sql")),
         31 => conn.execute_batch(include_str!("schema_checkin_records_index.sql")),
         32 => conn.execute_batch(include_str!("schema_model_pricing.sql")),
+        33 => conn.execute_batch(include_str!("schema_returned_model.sql")),
         _ => Ok(()),
     }
 }

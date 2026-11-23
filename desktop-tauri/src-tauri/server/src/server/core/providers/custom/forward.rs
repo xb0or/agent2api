@@ -190,6 +190,7 @@ pub(crate) async fn forward(
         .trim()
         .to_string();
     let (mut outbound, rewrite) = rewrite_for_route(body, provider_id, &requested, route_model);
+    let rewrite = rewrite.filter(|_| crate::server::config::response_model_original_enabled());
     // 客户端形态伪装（OpenCode 免费档）：补桩工具。未开启时不碰请求体。
     // 放在 `rewrite_body` 之后、序列化之前 —— 会话种子取自**改写后**的体，
     // 与最终发出去的字节同源（模型名换了不影响 messages，两种取法等价，
@@ -471,7 +472,8 @@ async fn forward_translated(
         .unwrap_or("")
         .trim()
         .to_string();
-    let (mut outbound_chat, rewrite) = rewrite_for_route(body, provider_id, &requested, route_model);
+        let (mut outbound_chat, rewrite) = rewrite_for_route(body, provider_id, &requested, route_model);
+        let rewrite = rewrite.filter(|_| crate::server::config::response_model_original_enabled());
     // 客户端形态伪装：与 chat 分支同一时机（改写后、翻译前）—— 桩工具要由
     // 转换器一起翻成上游协议的形态（anthropic 的 tools 数组）；Go 面不改请求体
     quirks.apply_emulation_to_body(&mut outbound_chat, base_url);

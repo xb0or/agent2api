@@ -2547,10 +2547,13 @@ fn limit_model_label(requested: &str, wire: &str) -> String {
 /// 其余 provider（以及没开开关的本两家）得到全关的 `FramePolicy`，下发帧
 /// 逐字节不变（workbuddy 那条「透传逐字节不变」的硬要求只在开关打开时让路一次）。
 fn frame_policy_of(adapter: &dyn ProviderAdapter, model: &str) -> super::sse::FramePolicy {
+    // 适配器能力位或全局「响应 model 用请求名」开关任一成立就回写：
+    // 前者是历史兼容（上游会回自己的内部名），后者是用户显式要求。
+    let rewrite = (adapter.sse_model_rewrite()
+        || crate::server::config::response_model_original_enabled())
+    .then(|| super::sse::ModelRewrite { requested: model.to_string() });
     super::sse::FramePolicy::assembled(
-        adapter
-            .sse_model_rewrite()
-            .then(|| super::sse::ModelRewrite { requested: model.to_string() }),
+        rewrite,
         adapter.sse_strip_newline_chunks(),
         crate::server::config::strip_newline_keepalive(),
     )

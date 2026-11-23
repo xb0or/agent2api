@@ -133,6 +133,9 @@ pub struct RequestEntry {
     /// 「模型用量」里拆成「真名 + 各家别名」好几行。
     #[serde(rename = "upstreamModel", default)]
     pub upstream_model: String,
+    /// 上游响应体里实际返回的模型名（诊断字段；空串 = 未采到 / 旧行）。
+    #[serde(rename = "returnedModel", default)]
+    pub returned_model: String,
     /// **下游请求体里**客户端显式指定的思考等级（如 `max`；空串 = 没指定，
     /// 或该行来自还没有此列的旧版本）。识别键与归一规则见
     /// `core::model_rules::reasoning::read_client_level`。
@@ -450,6 +453,8 @@ pub struct NewRequestEntry {
     pub client_model: String,
     /// 实际发给上游的模型名（空串 = 一次都没发出去 / 未记录）
     pub upstream_model: String,
+    /// 上游响应体里实际返回的模型名（空串 = 未采到 / 未记录）
+    pub returned_model: String,
     /// 下游请求显式指定的思考等级（空串 = 没指定；见 `RequestEntry::client_reasoning`）
     pub client_reasoning: String,
     /// 实际随上游请求发出的思考等级（空串 = 没有等级随行；见
@@ -494,6 +499,7 @@ impl NewRequestEntry {
             provider: None,
             client_model: String::new(),
             upstream_model: String::new(),
+            returned_model: String::new(),
             client_reasoning: String::new(),
             upstream_reasoning: String::new(),
             id: String::new(),
@@ -595,6 +601,7 @@ impl NewRequestEntry {
             // 「看起来不同的名字」）；空串语义 = 没有点名 / 没有发出去
             client_model: self.client_model.trim().to_string(),
             upstream_model: self.upstream_model.trim().to_string(),
+            returned_model: self.returned_model.trim().to_string(),
             // 两个等级列同一口径：trim 后透传，空串 = 没有等级
             client_reasoning: self.client_reasoning.trim().to_string(),
             upstream_reasoning: self.upstream_reasoning.trim().to_string(),

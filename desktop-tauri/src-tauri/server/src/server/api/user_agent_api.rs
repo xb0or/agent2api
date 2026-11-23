@@ -53,11 +53,12 @@ pub async fn put_user_agent(State(_state): State<ServerState>, body: Bytes) -> R
     };
     let has_user_agent = object.contains_key(KEY_EGRESS_USER_AGENT);
     let has_passthrough = object.contains_key(KEY_EGRESS_USER_AGENT_PASSTHROUGH);
-    if !has_user_agent && !has_passthrough {
+    let has_response_model = object.contains_key(crate::server::config::KEY_RESPONSE_MODEL_ORIGINAL);
+    if !has_user_agent && !has_passthrough && !has_response_model {
         return errors::management_error(
             400,
             format!(
-                "缺少 {KEY_EGRESS_USER_AGENT} 或 {KEY_EGRESS_USER_AGENT_PASSTHROUGH}"
+                "缺少 {KEY_EGRESS_USER_AGENT}、{KEY_EGRESS_USER_AGENT_PASSTHROUGH} 或 responseModelOriginalEnabled"
             ),
         );
     }
@@ -119,6 +120,24 @@ pub async fn put_user_agent(State(_state): State<ServerState>, body: Bytes) -> R
             &format!("客户端 UA 透传{}", if enabled { "已开启" } else { "已关闭" }),
         );
     }
+    let response_model = match object.get(crate::server::config::KEY_RESPONSE_MODEL_ORIGINAL) {
+        None => None,
+        Some(value) => match value.as_bool() {
+            Some(enabled) => Some(enabled),
+            None => {
+                return errors::management_error(400, "responseModelOriginalEnabled 必须是布尔值")
+            }
+        },
+    };
+    if let Some(enabled) = response_model {
+        if !config::set_response_model_original_enabled(enabled) {
+            logging::log("[Config]", "⚠️  响应模型回写开关写入失败，本次运行内仍生效");
+        }
+        logging::log(
+            "[Config]",
+            &format!("响应 model 回写为请求名{}", if enabled { "已开启" } else { "已关闭" }),
+        );
+    }
     ok_json(user_agent_json())
 }
 
@@ -129,6 +148,7 @@ fn user_agent_json() -> Value {
         "defaultUserAgent": DEFAULT_EGRESS_USER_AGENT,
         "custom": user_agent != DEFAULT_EGRESS_USER_AGENT,
         "passthrough": config::egress_user_agent_passthrough(),
+        "responseModelOriginal": config::response_model_original_enabled(),
     })
 }
 

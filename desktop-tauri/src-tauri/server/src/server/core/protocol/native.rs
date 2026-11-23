@@ -94,6 +94,22 @@ impl NativeRequest {
     }
 }
 
+/// 读响应里上游实际声明的模型名（诊断用；与 `rewrite_response_model` 同一
+/// 协议分支，但不修改 body）。
+pub fn response_model_of(protocol: WireProtocol, body: &Value) -> Option<String> {
+    let target = match protocol {
+        WireProtocol::Anthropic => body.get("message").unwrap_or(body),
+        WireProtocol::Responses => body.get("response").unwrap_or(body),
+        WireProtocol::Chat => body,
+    };
+    target
+        .get("model")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
 pub fn rewrite_response_model(protocol: WireProtocol, body: &mut Value, model: &str) -> bool {
     if model.is_empty() {
         return false;

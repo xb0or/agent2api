@@ -136,6 +136,7 @@ type RequestRow = {
   model?: unknown
   clientModel?: unknown
   upstreamModel?: unknown
+  returnedModel?: unknown
   clientReasoning?: unknown
   upstreamReasoning?: unknown
   accountId?: unknown
@@ -379,12 +380,21 @@ function StatusCell({ row }: { row: RequestRow }) {
 function ModelCell({ row }: { row: RequestRow }) {
   const client = String(row.clientModel ?? '').trim()
   const upstream = String(row.upstreamModel ?? '').trim()
+  const returned = String(row.returnedModel ?? '').trim()
   const shown = String(row.model ?? '').trim()
   const clientLevel = String(row.clientReasoning ?? '').trim()
   const upstreamLevel = String(row.upstreamReasoning ?? '').trim()
   const tag = (name: string, level: string) => (level ? `${name}(${level})` : name)
+  const returnedLine = returned && returned.toLowerCase() !== (upstream || shown).toLowerCase()
+    ? <span className='text-muted-foreground' title={t('上游响应体实际声明的模型：{model}', { model: returned })}>{t('响应 {model}', { model: returned })}</span>
+    : null
   if (!client || !upstream || upstream.toLowerCase() === client.toLowerCase()) {
-    return <>{tag(shown, upstreamLevel || clientLevel) || '—'}</>
+    return (
+      <span className='flex flex-col gap-0.5'>
+        <span>{tag(shown, upstreamLevel || clientLevel) || '—'}</span>
+        {returnedLine}
+      </span>
+    )
   }
   const upText = tag(upstream, upstreamLevel)
   const downText = tag(client, clientLevel)
@@ -392,6 +402,7 @@ function ModelCell({ row }: { row: RequestRow }) {
     <span className='flex flex-col gap-0.5'>
       <span title={t('转发到上游的模型：{model}', { model: upText })}>⬆️ {upText}</span>
       <span className='text-muted-foreground' title={t('下游请求的模型：{model}', { model: downText })}>⬇️ {downText}</span>
+      {returnedLine}
     </span>
   )
 }

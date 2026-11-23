@@ -266,6 +266,7 @@ impl CompletionAccumulator {
         }
         if let Some(model) = object.get("model").and_then(Value::as_str) {
             self.model = model.to_string();
+            telemetry.note_returned_model(model);
         }
         // Node: `created = chunk.created || created` —— 真值判定（0 不覆盖已有值）
         if let Some(created) = object.get("created") {

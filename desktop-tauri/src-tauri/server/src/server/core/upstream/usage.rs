@@ -267,6 +267,11 @@ pub struct TelemetrySnapshot {
     /// `outbound_reasoning` 返回 None）、「关闭思考」档被注入闸拦下。
     /// 请求日志的模型列用它给上游模型名带 `(等级)` 后缀。
     pub upstream_reasoning: String,
+    /// 上游响应体里**实际返回**的模型名（诊断用，不参与路由 / 计价 / 下发）。
+    ///
+    /// 与 `upstream_model` 分开：后者是「我们发出去的」，本字段是「上游说它
+    /// 是谁」。只在响应转换 / 回写之前采集，空串 = 上游没给或响应前就失败。
+    pub returned_model: String,
     pub prompt_tokens: i64,
     pub completion_tokens: i64,
     pub total_tokens: i64,
@@ -925,6 +930,16 @@ impl RequestTelemetry {
         // 在途回写：上游真名是发送体定稿那一刻就确定的，比请求真正发出去还早
         // —— 模型列因此能在转发期间就显示「⬆️ 上游 / ⬇️ 下游」两行
         self.flush_live(&guard);
+    }
+
+    /// 记录上游响应里实际返回的模型名（诊断字段，覆盖式，最后一次为准）。
+    pub fn note_returned_model(&self, model: &str) {
+        let model = model.trim();
+        if model.is_empty() {
+            return;
+        }
+        let mut guard = self.lock();
+        guard.returned_model = model.to_string();
     }
 
     /// 记录「这一次尝试实际随请求发给上游的思考等级」（覆盖式，最后一次为准）。

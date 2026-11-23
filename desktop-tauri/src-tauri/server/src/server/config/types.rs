@@ -768,6 +768,12 @@ pub const KEY_EGRESS_USER_AGENT: &str = "egressUserAgent";
 /// 显式 UA 仍然优先，本开关不会覆盖它们。
 pub const KEY_EGRESS_USER_AGENT_PASSTHROUGH: &str = "egressUserAgentPassthrough";
 
+/// 是否把响应里的 `model` 改回客户端请求名（布尔，默认 true = 保持既有行为）。
+///
+/// 关闭后响应保留上游实际返回的模型名；该实际值始终记录进请求日志的
+/// `returnedModel`，与开关无关。
+pub const KEY_RESPONSE_MODEL_ORIGINAL: &str = "responseModelOriginalEnabled";
+
 /// 出厂 UA：通用浏览器标识。
 ///
 /// 这个默认值不是随便挑的：部分上游的计费 / 配置接口按 UA 判「请求是否合法」，

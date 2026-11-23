@@ -18,7 +18,7 @@ use bytes::Bytes;
 use futures::{Stream, StreamExt};
 use serde_json::{json, Value};
 
-use crate::server::core::protocol::native::{error_frame, rewrite_response_model, WireProtocol};
+use crate::server::core::protocol::native::{error_frame, response_model_of, rewrite_response_model, WireProtocol};
 use crate::server::core::protocol::usage::{token_count, TokenUsage};
 use crate::server::errors::GatewayError;
 
@@ -128,7 +128,12 @@ pub(crate) async fn receive(
         .map_err(|_| {
             GatewayError::with_status(502, format!("非流式响应超时({}秒)", budget.as_secs()))
         })??;
-        rewrite_response_model(protocol, &mut body, requested);
+        if let Some(model) = response_model_of(protocol, &body) {
+            telemetry.note_returned_model(&model);
+        }
+        if crate::server::config::response_model_original_enabled() {
+            rewrite_response_model(protocol, &mut body, requested);
+        }
         return Ok(NativeResponse {
             protocol,
             status,
@@ -165,7 +170,12 @@ pub(crate) async fn receive(
     })??;
     let mut observer = Observer::default();
     observer.observe(protocol, &body, &telemetry);
-    rewrite_response_model(protocol, &mut body, requested);
+    if let Some(model) = response_model_of(protocol, &body) {
+        telemetry.note_returned_model(&model);
+    }
+    if crate::server::config::response_model_original_enabled() {
+        rewrite_response_model(protocol, &mut body, requested);
+    }
     Ok(NativeResponse {
         protocol,
         status,
@@ -428,6 +438,19 @@ impl NativeStream {
         self.ended |= terminal && (self.protocol != WireProtocol::Responses || kind != "error");
         self.observer
             .observe(self.protocol, &event, &self.telemetry);
+        if let Some(model) = response_model_of(self.protocol, &event) {
+            self.telemetry.note_returned_model(&model);
+        }
+        if !crate::server::config::response_model_original_enabled() {
+            if terminal && event_name.is_empty() {
+                let mut framed = format!("event: {kind}\n").into_bytes();
+                framed.extend_from_slice(&bytes);
+                self.pending.push_back(Bytes::from(framed));
+            } else {
+                self.pending.push_back(Bytes::from(bytes));
+            }
+            return;
+        }
         if !rewrite_response_model(self.protocol, &mut event, &self.requested) {
             if terminal && event_name.is_empty() {
                 let mut framed = format!("event: {kind}\n").into_bytes();

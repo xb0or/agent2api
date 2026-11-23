@@ -1490,5 +1490,9 @@
   "已恢复出厂值": "Valor de fábrica restaurado",
   "透传客户端 User-Agent": "Repassar o User-Agent do cliente",
   "开启后，出站请求会优先带上客户端发来的 User-Agent；账号级 / 提供商级 / 请求级显式 UA 仍然优先，只有它们都没设置时才透传。关闭时使用上面的全局默认 UA。": "Quando ativado, as requisições de saída preferem o User-Agent enviado pelo cliente. UAs explícitos no nível da conta, do provedor e da requisição continuam tendo precedência; o repasse só preenche quando nenhum deles está definido. Quando desativado, o UA padrão global acima é usado.",
-  "✅ 出站 User-Agent 设置已保存": "Configurações de User-Agent de saída salvas"
+  "✅ 出站 User-Agent 设置已保存": "Configurações de User-Agent de saída salvas",
+  "响应 model 使用请求名": "Usar o nome solicitado como model da resposta",
+  "开启后，响应体（含流式每一帧）里的 model 字段统一改写为客户端的请求名；关闭后保留上游实际返回的模型名。无论开关如何，上游实际返回值都会记录在请求日志的「响应模型」里，供排查模型映射与降级。默认开启，与既有行为一致。": "Quando ativado, o campo model das respostas (incluindo cada frame de streaming) é reescrito com o nome solicitado pelo cliente. Quando desativado, o nome retornado pelo upstream é mantido. Independentemente do switch, o valor real do upstream é registrado como \"modelo de resposta\" no log de requisições para diagnosticar mapeamento e fallback. Ativado por padrão, igual ao comportamento existente.",
+  "响应 {model}": "Resposta {model}",
+  "上游响应体实际声明的模型：{model}": "Modelo realmente declarado pela resposta do upstream: {model}"
 }

@@ -734,7 +734,15 @@ function UserAgentPanel({ snap }: { snap: SettingsSnapshot }) {
             tip={TIPS.userAgentPassthrough}
             checked={state.passthrough}
             disabled={busy || !ready}
-            onCheckedChange={next => void saveUserAgent(state.userAgent, next)}
+            onCheckedChange={next => void saveUserAgent(state.userAgent, next, state.responseModelOriginal)}
+          />
+          <SwitchRow
+            id='settings-response-model-original'
+            label={t('响应 model 使用请求名')}
+            tip={TIPS.responseModelOriginal}
+            checked={state.responseModelOriginal}
+            disabled={busy || !ready}
+            onCheckedChange={next => void saveUserAgent(state.userAgent, state.passthrough, next)}
           />
           <div className='flex flex-wrap items-center gap-2'>
             <Input
@@ -749,13 +757,13 @@ function UserAgentPanel({ snap }: { snap: SettingsSnapshot }) {
             <Button
               variant='ghost'
               disabled={busy || !ready || !state.custom}
-              onClick={() => void saveUserAgent('', state.passthrough)}
+              onClick={() => void saveUserAgent('', state.passthrough, state.responseModelOriginal)}
             >
               {t('恢复默认')}
             </Button>
             <Button
               disabled={busy || !ready || !dirty}
-              onClick={() => void saveUserAgent(draftText === state.defaultUserAgent ? '' : draftText, state.passthrough)}
+              onClick={() => void saveUserAgent(draftText === state.defaultUserAgent ? '' : draftText, state.passthrough, state.responseModelOriginal)}
             >
               {t('保存')}
             </Button>

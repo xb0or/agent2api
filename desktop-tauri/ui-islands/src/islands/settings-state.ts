@@ -200,6 +200,8 @@ export type UserAgentState = {
   custom: boolean
   /** 是否把客户端请求的 UA 透传给上游（默认关） */
   passthrough: boolean
+  /** 响应里的 model 是否回写为客户端请求名（默认开） */
+  responseModelOriginal: boolean
 }
 
 /**
@@ -436,7 +438,7 @@ const INITIAL: SettingsSnapshot = {
   retry: { status: 'loading', values: null },
   retryCodes: null,
   timeouts: { status: 'loading', values: null },
-  userAgent: { status: 'loading', userAgent: '', defaultUserAgent: '', custom: false, passthrough: false },
+  userAgent: { status: 'loading', userAgent: '', defaultUserAgent: '', custom: false, passthrough: false, responseModelOriginal: true },
   queue: { status: 'loading', values: null },
   imageCompress: { status: 'loading', enabled: true, values: null },
   captchaPool: { status: 'loading', values: null },
@@ -2001,11 +2003,11 @@ export function renderUserAgent(data?: unknown): void {
   if (data === undefined) return
   if (!data || typeof data !== 'object') {
     publish({
-      userAgent: { status: 'unavailable', userAgent: '', defaultUserAgent: '', custom: false, passthrough: false },
+      userAgent: { status: 'unavailable', userAgent: '', defaultUserAgent: '', custom: false, passthrough: false, responseModelOriginal: true },
     })
     return
   }
-  const source = data as { userAgent?: unknown; defaultUserAgent?: unknown; custom?: unknown; passthrough?: unknown }
+  const source = data as { userAgent?: unknown; defaultUserAgent?: unknown; custom?: unknown; passthrough?: unknown; responseModelOriginal?: unknown }
   publish({
     userAgent: {
       status: 'ready',
@@ -2013,6 +2015,7 @@ export function renderUserAgent(data?: unknown): void {
       defaultUserAgent: typeof source.defaultUserAgent === 'string' ? source.defaultUserAgent : '',
       custom: source.custom === true,
       passthrough: source.passthrough === true,
+      responseModelOriginal: source.responseModelOriginal !== false,
     },
   })
 }
@@ -2032,11 +2035,11 @@ export async function refreshUserAgent(): Promise<void> {
 }
 
 /** 保存出站 UA 与透传开关（空串 = 清空覆盖、回落出厂值）。 */
-export async function saveUserAgent(userAgent: string, passthrough: boolean): Promise<void> {
+export async function saveUserAgent(userAgent: string, passthrough: boolean, responseModelOriginal: boolean): Promise<void> {
   if (busyScope) { repaint(); return }
   beginBusy('userAgent')
   try {
-    const saved = await shared().workbuddyDesktop?.saveUserAgent(userAgent, passthrough)
+    const saved = await shared().workbuddyDesktop?.saveUserAgent(userAgent, passthrough, responseModelOriginal)
     renderUserAgent(saved)
     toast(t('✅ 出站 User-Agent 设置已保存'))
   } catch (error) {
