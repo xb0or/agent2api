@@ -1498,5 +1498,8 @@
   "响应模型": "Modelo da resposta",
   "使用请求名": "Usar nome solicitado",
   "保留上游名": "Manter nome do upstream",
-  "上游响应模型": "Modelo da resposta do upstream"
+  "上游响应模型": "Modelo da resposta do upstream",
+  "心跳保活": "Keepalive do stream",
+  "启用流式心跳保活": "Ativar keepalive do stream",
+  "静默超过该时长时：SSE 发送 `: keepalive` 注释行，WebSocket 发送 Ping 帧，不进入业务事件。范围 {min}~{max} 秒。": "Após esse tempo sem dados, envia um comentário SSE `: keepalive` ou um quadro Ping WebSocket. Nenhum entra nos eventos de negócio. Faixa {min}-{max} segundos."
 }

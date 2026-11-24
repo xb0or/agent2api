@@ -774,6 +774,14 @@ pub const KEY_EGRESS_USER_AGENT_PASSTHROUGH: &str = "egressUserAgentPassthrough"
 /// `returnedModel`，与开关无关。
 pub const KEY_RESPONSE_MODEL_ORIGINAL: &str = "responseModelOriginalEnabled";
 
+/// 下游流式连接心跳保活开关（SSE / WebSocket；默认开）。
+pub const KEY_STREAM_KEEPALIVE_ENABLED: &str = "streamKeepaliveEnabled";
+/// 心跳间隔秒数（默认 15，合法 1~300）。
+pub const KEY_STREAM_KEEPALIVE_SECONDS: &str = "streamKeepaliveSeconds";
+pub const DEFAULT_STREAM_KEEPALIVE_SECONDS: i64 = 15;
+pub const MIN_STREAM_KEEPALIVE_SECONDS: i64 = 1;
+pub const MAX_STREAM_KEEPALIVE_SECONDS: i64 = 300;
+
 /// 出厂 UA：通用浏览器标识。
 ///
 /// 这个默认值不是随便挑的：部分上游的计费 / 配置接口按 UA 判「请求是否合法」，

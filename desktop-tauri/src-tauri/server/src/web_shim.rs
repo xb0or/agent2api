@@ -2488,6 +2488,8 @@ pub fn shim_js() -> &'static str {
     // 与桌面桥（src/bridge.rs 的 getUserAgent / saveUserAgent）逐字同形。
     getUserAgent: function () { return call('GET', '/api/user-agent'); },
     saveUserAgent: function (userAgent, passthrough, responseModelOriginal) { return call('PUT', '/api/user-agent', { userAgent: userAgent, passthrough: passthrough === true, responseModelOriginal: responseModelOriginal !== false }); },
+    getStreamKeepalive: function () { return call('GET', '/api/stream-keepalive'); },
+    saveStreamKeepalive: function (patch) { return call('PUT', '/api/stream-keepalive', patch); },
     // ── 排队等待（次数 / 单次秒数）──
     getQueue: function () { return call('GET', '/api/queue'); },
     saveQueue: function (patch) { return call('PUT', '/api/queue', patch); },

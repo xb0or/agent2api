@@ -45,7 +45,7 @@ use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Extension, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use futures::StreamExt;
+use futures::{SinkExt, StreamExt};
 use serde_json::{json, Value};
 
 use crate::server::core::key_scope::KeyScope;
@@ -105,7 +105,22 @@ async fn serve(
     identity: Option<Extension<ApiKeyIdentity>>,
 ) {
     let mut streams: HashMap<String, StreamState> = HashMap::new();
-    while let Some(message) = socket.recv().await {
+    let heartbeat = crate::server::config::stream_keepalive_interval();
+    loop {
+        let message = if let Some(interval) = heartbeat {
+            tokio::select! {
+                message = socket.recv() => message,
+                _ = tokio::time::sleep(interval) => {
+                    if socket.send(Message::Ping(Bytes::new())).await.is_err() {
+                        break;
+                    }
+                    continue;
+                }
+            }
+        } else {
+            socket.recv().await
+        };
+        let Some(message) = message else { break };
         let text = match message {
             Ok(Message::Text(text)) => text.to_string(),
             // 少数客户端把 JSON 放二进制帧：同样按文本解析

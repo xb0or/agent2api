@@ -2034,6 +2034,14 @@ export async function refreshUserAgent(): Promise<void> {
   toast(t('出站 User-Agent 已刷新'))
 }
 
+export async function getStreamKeepalive(): Promise<unknown> {
+  return shared().workbuddyDesktop?.getStreamKeepalive()
+}
+
+export async function saveStreamKeepalive(patch: { enabled?: boolean; seconds?: number }): Promise<unknown> {
+  return shared().workbuddyDesktop?.saveStreamKeepalive(patch)
+}
+
 /** 保存出站 UA 与透传开关（空串 = 清空覆盖、回落出厂值）。 */
 export async function saveUserAgent(userAgent: string, passthrough: boolean, responseModelOriginal: boolean): Promise<void> {
   if (busyScope) { repaint(); return }

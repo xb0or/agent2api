@@ -796,7 +796,9 @@ pub fn sse_response(
     status: StatusCode,
     stream: Box<dyn futures::Stream<Item = Result<Bytes, std::io::Error>> + Send + Unpin>,
 ) -> Response {
-    let mut response = Response::new(Body::from_stream(stream));
+    let mut response = Response::new(Body::from_stream(
+        crate::server::core::stream_keepalive::KeepaliveStream::new(stream),
+    ));
     *response.status_mut() = status;
     let headers = response.headers_mut();
     headers.insert(

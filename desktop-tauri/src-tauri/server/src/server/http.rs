@@ -326,6 +326,12 @@ pub fn panel_router(state: ServerState) -> Router {
             "/api/user-agent",
             get(api::user_agent_api::get_user_agent).put(api::user_agent_api::put_user_agent),
         )
+        // 下游流式连接心跳保活（SSE 注释行 / WebSocket Ping）
+        .route(
+            "/api/stream-keepalive",
+            get(api::stream_keepalive::get_stream_keepalive)
+                .put(api::stream_keepalive::put_stream_keepalive),
+        )
         // 排队等待（次数 / 单次秒数）：走排队制的上游（目前是 Qoder 免费模型）
         // 在模型繁忙时回报「建议 N 秒后再来」，转发层据此退避重发几次。
         // 与 /api/timeouts 同一模式：保存后对下一个请求立即生效。

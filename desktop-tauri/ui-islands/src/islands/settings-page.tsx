@@ -116,6 +116,8 @@ import {
   saveReasoningCollapse,
   saveTimeoutField,
   saveUserAgent,
+  getStreamKeepalive,
+  saveStreamKeepalive,
   saveToggle,
   selectCategory,
   showCategory,
@@ -701,6 +703,84 @@ function TimeoutPane({ snap }: { snap: SettingsSnapshot }) {
 
 /* ─── 网关分类 ─────────────────────────────── */
 
+function StreamKeepalivePanel() {
+  type State = { status: 'loading' | 'ready' | 'unavailable'; enabled: boolean; seconds: number; min: number; max: number }
+  const [state, setState] = React.useState<State>({ status: 'loading', enabled: true, seconds: 15, min: 1, max: 300 })
+  const [draft, setDraft] = React.useState('15')
+  const [busy, setBusy] = React.useState(false)
+  const apply = (data: unknown) => {
+    if (!data || typeof data !== 'object') { setState(prev => ({ ...prev, status: 'unavailable' })); return }
+    const source = data as { enabled?: unknown; seconds?: unknown; minSeconds?: unknown; maxSeconds?: unknown }
+    const seconds = Number(source.seconds) || 15
+    setState({
+      status: 'ready',
+      enabled: source.enabled !== false,
+      seconds,
+      min: Number(source.minSeconds) || 1,
+      max: Number(source.maxSeconds) || 300,
+    })
+    setDraft(String(seconds))
+  }
+  React.useEffect(() => {
+    let alive = true
+    void getStreamKeepalive().then(data => { if (alive) apply(data) }).catch(() => { if (alive) setState(prev => ({ ...prev, status: 'unavailable' })) })
+    return () => { alive = false }
+  }, [])
+  const save = async (patch: { enabled?: boolean; seconds?: number }) => {
+    setBusy(true)
+    try {
+      apply(await saveStreamKeepalive(patch))
+    } catch {
+      setState(prev => ({ ...prev, status: 'unavailable' }))
+    } finally {
+      setBusy(false)
+    }
+  }
+  const seconds = Number(draft)
+  const valid = Number.isInteger(seconds) && seconds >= state.min && seconds <= state.max
+  return (
+    <Card render={<section />} className='panel'>
+      <PanelHead
+        title={t('心跳保活')}
+        tip={TIPS.streamKeepalive}
+        badge={state.status === 'ready'
+          ? <StatusBadge tone={state.enabled ? 'ok' : 'idle'}>{state.enabled ? t('已开启') : t('已关闭')}</StatusBadge>
+          : <StatusBadge tone='idle'>{t('检测中…')}</StatusBadge>}
+      />
+      <CardContent className='panel-body'>
+        <div className='retention-list'>
+          <SwitchRow
+            id='settings-stream-keepalive'
+            label={t('启用流式心跳保活')}
+            tip={TIPS.streamKeepalive}
+            checked={state.enabled}
+            disabled={busy || state.status !== 'ready'}
+            onCheckedChange={next => void save({ enabled: next, seconds: state.seconds })}
+          />
+          <div className='flex flex-wrap items-center gap-2'>
+            <Input
+              id='settings-stream-keepalive-seconds'
+              className='w-[110px] font-mono text-[13px]'
+              type='number'
+              min={state.min}
+              max={state.max}
+              value={draft}
+              disabled={busy || state.status !== 'ready'}
+              onChange={event => setDraft(event.target.value)}
+            />
+            <span className='text-muted-foreground'>{t('秒')}</span>
+            <Button disabled={busy || state.status !== 'ready' || !valid || seconds === state.seconds}
+              onClick={() => void save({ seconds })}>{t('保存')}</Button>
+          </div>
+        </div>
+        <div className='hint retention-note'>
+          {t('静默超过该时长时：SSE 发送 `: keepalive` 注释行，WebSocket 发送 Ping 帧，不进入业务事件。范围 {min}~{max} 秒。', { min: state.min, max: state.max })}
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
 /** 响应模型：是否把响应里的 model 回写为客户端请求名。 */
 function ResponseModelPanel({ snap }: { snap: SettingsSnapshot }) {
   const state = snap.userAgent
@@ -837,6 +917,8 @@ function GatewayPane({ snap, panels }: { snap: SettingsSnapshot; panels: Set<str
       <UserAgentPanel snap={snap} />
 
       <ResponseModelPanel snap={snap} />
+
+      <StreamKeepalivePanel />
 
       <Card render={<section />} className='panel'>
         <PanelHead

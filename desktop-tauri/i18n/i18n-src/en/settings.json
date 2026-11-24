@@ -1496,5 +1496,8 @@
   "响应模型": "Response model",
   "使用请求名": "Use requested name",
   "保留上游名": "Keep upstream name",
-  "上游响应模型": "Upstream response model"
+  "上游响应模型": "Upstream response model",
+  "心跳保活": "Stream keepalive",
+  "启用流式心跳保活": "Enable stream keepalive",
+  "静默超过该时长时：SSE 发送 `: keepalive` 注释行，WebSocket 发送 Ping 帧，不进入业务事件。范围 {min}~{max} 秒。": "When silent for this long, send an SSE `: keepalive` comment or a WebSocket Ping frame. Neither enters business events. Range {min}-{max} seconds."
 }

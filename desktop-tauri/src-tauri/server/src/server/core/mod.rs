@@ -146,6 +146,7 @@ pub mod task_state;
 /// Trae 历史模型 ID（`-solo` / `-solo-max`）的一次性清理：见模块头。
 pub(crate) mod trae_model_ids;
 pub mod update;
+pub mod stream_keepalive;
 pub mod upstream;
 pub mod upstream_versions;
 pub(crate) mod user_agent;

@@ -1819,6 +1819,42 @@ pub fn set_egress_user_agent_passthrough(enabled: bool) -> bool {
     update_raw_field(KEY_EGRESS_USER_AGENT_PASSTHROUGH, Value::Bool(enabled))
 }
 
+/// 下游流式连接是否启用心跳保活（默认开）。
+pub fn stream_keepalive_enabled() -> bool {
+    with_raw(|raw| {
+        raw.get(KEY_STREAM_KEEPALIVE_ENABLED)
+            .and_then(Value::as_bool)
+            .unwrap_or(true)
+    })
+    .unwrap_or(true)
+}
+
+/// 心跳间隔（秒，夹在合法范围内）。
+pub fn stream_keepalive_seconds() -> i64 {
+    with_raw(|raw| {
+        raw.get(KEY_STREAM_KEEPALIVE_SECONDS)
+            .and_then(Value::as_i64)
+            .unwrap_or(DEFAULT_STREAM_KEEPALIVE_SECONDS)
+            .clamp(MIN_STREAM_KEEPALIVE_SECONDS, MAX_STREAM_KEEPALIVE_SECONDS)
+    })
+    .unwrap_or(DEFAULT_STREAM_KEEPALIVE_SECONDS)
+}
+
+/// 启用时返回心跳间隔，未启用返回 None。
+pub fn stream_keepalive_interval() -> Option<std::time::Duration> {
+    stream_keepalive_enabled()
+        .then(|| std::time::Duration::from_secs(stream_keepalive_seconds() as u64))
+}
+
+pub fn set_stream_keepalive_enabled(enabled: bool) -> bool {
+    update_raw_field(KEY_STREAM_KEEPALIVE_ENABLED, Value::Bool(enabled))
+}
+
+pub fn set_stream_keepalive_seconds(seconds: i64) -> bool {
+    let seconds = seconds.clamp(MIN_STREAM_KEEPALIVE_SECONDS, MAX_STREAM_KEEPALIVE_SECONDS);
+    update_raw_field(KEY_STREAM_KEEPALIVE_SECONDS, Value::from(seconds))
+}
+
 /// 响应 model 是否回写为客户端请求名（默认开，保持既有行为）。
 pub fn response_model_original_enabled() -> bool {
     with_raw(|raw| {
